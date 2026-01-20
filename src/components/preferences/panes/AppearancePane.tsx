@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useTheme } from '@/hooks/use-theme'
+import { COLOR_THEMES } from '@/lib/theme-config'
 import { SettingsField, SettingsSection } from '../shared/SettingsComponents'
 import { usePreferences, useSavePreferences } from '@/services/preferences'
 import { availableLanguages } from '@/i18n'
@@ -23,9 +24,15 @@ const languageNames: Record<string, string> = {
 
 export function AppearancePane() {
   const { t, i18n } = useTranslation()
-  const { theme, setTheme } = useTheme()
+  const { theme, colorTheme, setTheme, setColorTheme } = useTheme()
   const { data: preferences } = usePreferences()
   const savePreferences = useSavePreferences()
+
+  const colorThemeLabels: Record<(typeof COLOR_THEMES)[number], string> = {
+    default: t('preferences.appearance.colorTheme.default'),
+    claude: t('preferences.appearance.colorTheme.claude'),
+    perplexity: t('preferences.appearance.colorTheme.perplexity'),
+  }
 
   const handleThemeChange = (value: 'light' | 'dark' | 'system') => {
     // Update the theme provider immediately for instant UI feedback
@@ -34,6 +41,14 @@ export function AppearancePane() {
     // Persist the theme preference to disk, preserving other preferences
     if (preferences) {
       savePreferences.mutate({ ...preferences, theme: value })
+    }
+  }
+
+  const handleColorThemeChange = (value: (typeof COLOR_THEMES)[number]) => {
+    setColorTheme(value)
+
+    if (preferences) {
+      savePreferences.mutate({ ...preferences, color_theme: value })
     }
   }
 
@@ -99,8 +114,8 @@ export function AppearancePane() {
 
       <SettingsSection title={t('preferences.appearance.theme')}>
         <SettingsField
-          label={t('preferences.appearance.colorTheme')}
-          description={t('preferences.appearance.colorThemeDescription')}
+          label={t('preferences.appearance.mode')}
+          description={t('preferences.appearance.modeDescription')}
         >
           <Select
             value={theme}
@@ -109,7 +124,7 @@ export function AppearancePane() {
           >
             <SelectTrigger>
               <SelectValue
-                placeholder={t('preferences.appearance.selectTheme')}
+                placeholder={t('preferences.appearance.selectMode')}
               />
             </SelectTrigger>
             <SelectContent>
@@ -122,6 +137,30 @@ export function AppearancePane() {
               <SelectItem value="system">
                 {t('preferences.appearance.theme.system')}
               </SelectItem>
+            </SelectContent>
+          </Select>
+        </SettingsField>
+
+        <SettingsField
+          label={t('preferences.appearance.colorTheme')}
+          description={t('preferences.appearance.colorThemeDescription')}
+        >
+          <Select
+            value={colorTheme}
+            onValueChange={handleColorThemeChange}
+            disabled={savePreferences.isPending}
+          >
+            <SelectTrigger>
+              <SelectValue
+                placeholder={t('preferences.appearance.selectColorTheme')}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {COLOR_THEMES.map(themeKey => (
+                <SelectItem key={themeKey} value={themeKey}>
+                  {colorThemeLabels[themeKey]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </SettingsField>

@@ -18,6 +18,7 @@ Object.defineProperty(window, 'matchMedia', {
 
 // Mock Tauri APIs for tests
 vi.mock('@tauri-apps/api/event', () => ({
+  emit: vi.fn().mockResolvedValue(null),
   listen: vi.fn().mockResolvedValue(() => {
     // Mock unlisten function
   }),
@@ -31,9 +32,10 @@ vi.mock('@tauri-apps/plugin-updater', () => ({
 vi.mock('@/lib/tauri-bindings', () => ({
   commands: {
     greet: vi.fn().mockResolvedValue('Hello, test!'),
-    loadPreferences: vi
-      .fn()
-      .mockResolvedValue({ status: 'ok', data: { theme: 'system' } }),
+    loadPreferences: vi.fn().mockResolvedValue({
+      status: 'ok',
+      data: { theme: 'system', color_theme: 'default' },
+    }),
     savePreferences: vi.fn().mockResolvedValue({ status: 'ok', data: null }),
     sendNativeNotification: vi
       .fn()

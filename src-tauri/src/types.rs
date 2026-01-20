@@ -27,6 +27,9 @@ pub static FILENAME_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct AppPreferences {
     pub theme: String,
+    /// Color theme name (e.g., "default", "claude")
+    #[serde(default = "default_color_theme")]
+    pub color_theme: String,
     /// Global shortcut for quick pane (e.g., "CommandOrControl+Shift+.")
     /// If None, uses the default shortcut
     pub quick_pane_shortcut: Option<String>,
@@ -39,10 +42,15 @@ impl Default for AppPreferences {
     fn default() -> Self {
         Self {
             theme: "system".to_string(),
+            color_theme: default_color_theme(),
             quick_pane_shortcut: None, // None means use default
             language: None,            // None means use system locale
         }
     }
+}
+
+fn default_color_theme() -> String {
+    "default".to_string()
 }
 
 // ============================================================================
@@ -119,4 +127,23 @@ pub fn validate_theme(theme: &str) -> Result<(), String> {
         "light" | "dark" | "system" => Ok(()),
         _ => Err("Invalid theme: must be 'light', 'dark', or 'system'".to_string()),
     }
+}
+
+/// Validates color theme value.
+pub fn validate_color_theme(color_theme: &str) -> Result<(), String> {
+    if color_theme.is_empty() {
+        return Err("Color theme cannot be empty".to_string());
+    }
+
+    validate_string_input(color_theme, 50, "Color theme")?;
+    if !color_theme
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(
+            "Invalid color theme: only lowercase letters, digits, and hyphens allowed".to_string(),
+        );
+    }
+
+    Ok(())
 }

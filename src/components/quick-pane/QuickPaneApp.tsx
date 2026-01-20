@@ -3,6 +3,13 @@ import { emit, listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { commands } from '@/lib/tauri-bindings'
 import { logger } from '@/lib/logger'
+import {
+  ALL_COLOR_THEME_CLASSES,
+  COLOR_THEME_CLASSES,
+  COLOR_THEME_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  isColorTheme,
+} from '@/lib/theme-config'
 
 /** Dismiss the quick pane window, logging any errors */
 async function dismissQuickPane() {
@@ -23,19 +30,28 @@ async function dismissQuickPane() {
  */
 // Apply theme from localStorage to document
 function applyTheme() {
-  const theme = localStorage.getItem('ui-theme') || 'system'
+  const themeMode = localStorage.getItem(THEME_STORAGE_KEY) || 'system'
+  const storedColorTheme = localStorage.getItem(COLOR_THEME_STORAGE_KEY)
+  const colorTheme = isColorTheme(storedColorTheme)
+    ? storedColorTheme
+    : 'default'
   const root = document.documentElement
 
-  root.classList.remove('light', 'dark')
+  root.classList.remove('light', 'dark', ...ALL_COLOR_THEME_CLASSES)
 
-  if (theme === 'system') {
+  const colorClass = COLOR_THEME_CLASSES[colorTheme]
+  if (colorClass) {
+    root.classList.add(colorClass)
+  }
+
+  if (themeMode === 'system') {
     const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
       .matches
       ? 'dark'
       : 'light'
     root.classList.add(systemTheme)
   } else {
-    root.classList.add(theme)
+    root.classList.add(themeMode)
   }
 }
 

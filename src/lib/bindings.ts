@@ -161,6 +161,10 @@ async updateQuickPaneShortcut(shortcut: string | null) : Promise<Result<null, st
  */
 export type AppPreferences = { theme: string; 
 /**
+ * Color theme name (e.g., "default", "claude")
+ */
+color_theme?: string; 
+/**
  * Global shortcut for quick pane (e.g., "CommandOrControl+Shift+.")
  * If None, uses the default shortcut
  */

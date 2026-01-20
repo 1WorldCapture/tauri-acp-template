@@ -6,6 +6,7 @@ import i18n from '@/i18n/config'
 import {
   ThemeProviderContext,
   type Theme,
+  type ColorTheme,
   type ThemeProviderState,
 } from '@/lib/theme-context'
 
@@ -30,10 +31,13 @@ interface AllTheProvidersProps {
  */
 function MockThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>('light')
+  const [colorTheme, setColorTheme] = useState<ColorTheme>('default')
 
   const value: ThemeProviderState = {
     theme,
+    colorTheme,
     setTheme,
+    setColorTheme,
   }
 
   return (

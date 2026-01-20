@@ -19,10 +19,14 @@ Tailwind v4 uses CSS-based configuration instead of `tailwind.config.js`.
 src/
 ├── App.css              # Main window styles + Tailwind imports
 ├── quick-pane.css       # Quick pane window styles
-└── theme-variables.css  # Shared theme variables (colors, radii)
+├── theme-variables.css  # Default theme variables (colors, radii)
+└── themes/              # Additional color themes (per-theme overrides)
+    ├── index.css        # Imports all theme files
+    ├── claude.css
+    └── perplexity.css
 ```
 
-**Multi-window theming**: `theme-variables.css` is imported by both `App.css` and `quick-pane.css` so all windows share the same theme tokens. When adding new color variables, add them to `theme-variables.css`.
+**Multi-window theming**: `theme-variables.css` and `themes/index.css` are imported by both `App.css` and `quick-pane.css` so all windows share the same theme tokens. When adding new color variables, add them to `theme-variables.css` and override them in each color theme as needed.
 
 ### Structure
 
@@ -123,6 +127,25 @@ This app uses the `.dark` class approach rather than CSS `light-dark()` because:
 - JavaScript control over theme switching
 - Supports "system" preference detection
 - Compatible with all shadcn components
+
+## Color Themes (Multi-Theme)
+
+Color themes are applied as additional classes on the root element alongside
+`light`/`dark`. Each theme provides its own CSS variable overrides while still
+respecting dark mode via `.dark`.
+
+### How It Works
+
+1. Default theme values live in `src/theme-variables.css` (`:root` + `.dark`).
+2. Additional themes live in `src/themes/*.css` using `.theme-<name>` selectors.
+3. Theme classes are applied to `<html>` (e.g., `.theme-claude.dark`).
+
+### Adding a New Color Theme
+
+1. Create `src/themes/<name>.css` with `.theme-<name>` and `.theme-<name>.dark`.
+2. Import it in `src/themes/index.css`.
+3. Add the name to `COLOR_THEMES` in `src/lib/theme-config.ts`.
+4. Add i18n labels under `preferences.appearance.colorTheme.*`.
 
 ## OKLCH Colors
 
