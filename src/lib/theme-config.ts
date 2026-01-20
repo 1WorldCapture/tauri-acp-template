@@ -1,10 +1,20 @@
-export const COLOR_THEMES = ['default', 'claude', 'perplexity'] as const
+export const COLOR_THEMES = [
+  'default',
+  'claude',
+  'perplexity',
+  'cosmic-night',
+  'modern-minimal',
+  'ocean-breeze',
+] as const
 export type ColorTheme = (typeof COLOR_THEMES)[number]
 
 export const COLOR_THEME_CLASSES: Record<ColorTheme, string> = {
   default: '',
   claude: 'theme-claude',
   perplexity: 'theme-perplexity',
+  'cosmic-night': 'theme-cosmic-night',
+  'modern-minimal': 'theme-modern-minimal',
+  'ocean-breeze': 'theme-ocean-breeze',
 }
 
 export const ALL_COLOR_THEME_CLASSES =

@@ -1,68 +1,112 @@
+/* Claude Theme - CSS Variables */
 .theme-claude {
-  --background: oklch(0.985 0.02 90);
-  --foreground: oklch(0.24 0.03 45);
-  --card: oklch(0.99 0.015 90);
-  --card-foreground: oklch(0.24 0.03 45);
-  --popover: oklch(0.99 0.015 90);
-  --popover-foreground: oklch(0.24 0.03 45);
-  --primary: oklch(0.42 0.09 45);
-  --primary-foreground: oklch(0.985 0.02 90);
-  --secondary: oklch(0.94 0.02 90);
-  --secondary-foreground: oklch(0.32 0.04 45);
-  --muted: oklch(0.94 0.02 90);
-  --muted-foreground: oklch(0.5 0.03 45);
-  --accent: oklch(0.92 0.03 80);
-  --accent-foreground: oklch(0.26 0.04 45);
-  --destructive: oklch(0.58 0.22 27);
-  --border: oklch(0.9 0.02 90);
-  --input: oklch(0.9 0.02 90);
-  --ring: oklch(0.6 0.05 45);
-  --chart-1: oklch(0.7 0.12 45);
-  --chart-2: oklch(0.7 0.1 85);
-  --chart-3: oklch(0.6 0.1 20);
-  --chart-4: oklch(0.65 0.08 120);
-  --chart-5: oklch(0.55 0.08 10);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.975 0.02 90);
-  --sidebar-foreground: oklch(0.24 0.03 45);
-  --sidebar-primary: oklch(0.42 0.09 45);
-  --sidebar-primary-foreground: oklch(0.985 0.02 90);
-  --sidebar-accent: oklch(0.94 0.02 90);
-  --sidebar-accent-foreground: oklch(0.32 0.04 45);
-  --sidebar-border: oklch(0.9 0.02 90);
-  --sidebar-ring: oklch(0.6 0.05 45);
+  --background: oklch(0.9818 0.0054 95.0986);
+  --foreground: oklch(0.3438 0.0269 95.7226);
+  --card: oklch(0.9818 0.0054 95.0986);
+  --card-foreground: oklch(0.1908 0.002 106.5859);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2671 0.0196 98.939);
+  --primary: oklch(0.6171 0.1375 39.0427);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9245 0.0138 92.9892);
+  --secondary-foreground: oklch(0.4334 0.0177 98.6048);
+  --muted: oklch(0.9341 0.0153 90.239);
+  --muted-foreground: oklch(0.6059 0.0075 97.4233);
+  --accent: oklch(0.9245 0.0138 92.9892);
+  --accent-foreground: oklch(0.2671 0.0196 98.939);
+  --destructive: oklch(0.1908 0.002 106.5859);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.8847 0.0069 97.3627);
+  --input: oklch(0.7621 0.0156 98.3528);
+  --ring: oklch(0.5937 0.1673 253.063);
+  --chart-1: oklch(0.5583 0.1276 42.9956);
+  --chart-2: oklch(0.6898 0.1581 290.4107);
+  --chart-3: oklch(0.8816 0.0276 93.128);
+  --chart-4: oklch(0.8822 0.0403 298.1792);
+  --chart-5: oklch(0.5608 0.1348 42.0584);
+  --sidebar: oklch(0.9663 0.008 98.8792);
+  --sidebar-foreground: oklch(0.359 0.0051 106.6524);
+  --sidebar-primary: oklch(0.6171 0.1375 39.0427);
+  --sidebar-primary-foreground: oklch(0.9881 0 0);
+  --sidebar-accent: oklch(0.9245 0.0138 92.9892);
+  --sidebar-accent-foreground: oklch(0.325 0 0);
+  --sidebar-border: oklch(0.9401 0 0);
+  --sidebar-ring: oklch(0.7731 0 0);
+  --radius: 0.5rem;
+
+  /* Chart color utilities - Claude Light mode */
+  --chart-1-bg-10: oklch(0.5583 0.1276 42.9956 / 0.1);
+  --chart-1-bg-15: oklch(0.5583 0.1276 42.9956 / 0.15);
+  --chart-2-bg-15: oklch(0.6898 0.1581 290.4107 / 0.15);
+  --chart-3-bg-15: oklch(0.8816 0.0276 93.128 / 0.15);
+  --chart-4-bg-15: oklch(0.8822 0.0403 298.1792 / 0.15);
+  --chart-5-bg-15: oklch(0.5608 0.1348 42.0584 / 0.15);
+
+  /* Chart color gradients for Claude theme - Light mode */
+  --gradient-chart-warm: linear-gradient(
+    to right,
+    oklch(0.5583 0.1276 42.9956),
+    oklch(0.5608 0.1348 42.0584)
+  );
+  --gradient-chart-cool: linear-gradient(
+    to right,
+    oklch(0.6898 0.1581 290.4107),
+    oklch(0.5583 0.1276 42.9956)
+  );
 }
 
 .theme-claude.dark {
-  --background: oklch(0.2 0.03 60);
-  --foreground: oklch(0.95 0.02 90);
-  --card: oklch(0.24 0.03 60);
-  --card-foreground: oklch(0.95 0.02 90);
-  --popover: oklch(0.24 0.03 60);
-  --popover-foreground: oklch(0.95 0.02 90);
-  --primary: oklch(0.72 0.09 60);
-  --primary-foreground: oklch(0.24 0.03 60);
-  --secondary: oklch(0.28 0.02 60);
-  --secondary-foreground: oklch(0.95 0.02 90);
-  --muted: oklch(0.28 0.02 60);
-  --muted-foreground: oklch(0.75 0.02 80);
-  --accent: oklch(0.32 0.03 50);
-  --accent-foreground: oklch(0.95 0.02 90);
-  --destructive: oklch(0.7 0.19 25);
-  --border: oklch(0.95 0.02 90 / 12%);
-  --input: oklch(0.95 0.02 90 / 18%);
-  --ring: oklch(0.6 0.05 60);
-  --chart-1: oklch(0.7 0.12 60);
-  --chart-2: oklch(0.7 0.1 90);
-  --chart-3: oklch(0.62 0.1 20);
-  --chart-4: oklch(0.68 0.08 130);
-  --chart-5: oklch(0.6 0.08 10);
-  --sidebar: oklch(0.22 0.03 60);
-  --sidebar-foreground: oklch(0.95 0.02 90);
-  --sidebar-primary: oklch(0.72 0.09 60);
-  --sidebar-primary-foreground: oklch(0.24 0.03 60);
-  --sidebar-accent: oklch(0.28 0.02 60);
-  --sidebar-accent-foreground: oklch(0.95 0.02 90);
-  --sidebar-border: oklch(0.95 0.02 90 / 12%);
-  --sidebar-ring: oklch(0.6 0.05 60);
+  --background: oklch(0.2679 0.0036 106.6427);
+  --foreground: oklch(0.8074 0.0142 93.0137);
+  --card: oklch(0.2679 0.0036 106.6427);
+  --card-foreground: oklch(0.9818 0.0054 95.0986);
+  --popover: oklch(0.3085 0.0035 106.6039);
+  --popover-foreground: oklch(0.9211 0.004 106.4781);
+  --primary: oklch(0.6724 0.1308 38.7559);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.9818 0.0054 95.0986);
+  --secondary-foreground: oklch(0.3085 0.0035 106.6039);
+  --muted: oklch(0.2213 0.0038 106.707);
+  --muted-foreground: oklch(0.7713 0.0169 99.0657);
+  --accent: oklch(0.213 0.0078 95.4245);
+  --accent-foreground: oklch(0.9663 0.008 98.8792);
+  --destructive: oklch(0.6368 0.2078 25.3313);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.3618 0.0101 106.8928);
+  --input: oklch(0.4336 0.0113 100.2195);
+  --ring: oklch(0.5937 0.1673 253.063);
+  --chart-1: oklch(0.5583 0.1276 42.9956);
+  --chart-2: oklch(0.6898 0.1581 290.4107);
+  --chart-3: oklch(0.213 0.0078 95.4245);
+  --chart-4: oklch(0.3074 0.0516 289.323);
+  --chart-5: oklch(0.5608 0.1348 42.0584);
+  --sidebar: oklch(0.2357 0.0024 67.7077);
+  --sidebar-foreground: oklch(0.8074 0.0142 93.0137);
+  --sidebar-primary: oklch(0.325 0 0);
+  --sidebar-primary-foreground: oklch(0.9881 0 0);
+  --sidebar-accent: oklch(0.168 0.002 106.6177);
+  --sidebar-accent-foreground: oklch(0.8074 0.0142 93.0137);
+  --sidebar-border: oklch(0.9401 0 0);
+  --sidebar-ring: oklch(0.7731 0 0);
+  --radius: 0.5rem;
+
+  /* Chart color utilities - Claude Dark mode */
+  --chart-1-bg-10: oklch(0.5583 0.1276 42.9956 / 0.1);
+  --chart-1-bg-15: oklch(0.5583 0.1276 42.9956 / 0.15);
+  --chart-2-bg-15: oklch(0.6898 0.1581 290.4107 / 0.15);
+  --chart-3-bg-15: oklch(0.213 0.0078 95.4245 / 0.15);
+  --chart-4-bg-15: oklch(0.3074 0.0516 289.323 / 0.15);
+  --chart-5-bg-15: oklch(0.5608 0.1348 42.0584 / 0.15);
+
+  /* Dark mode chart color gradients for Claude theme */
+  --gradient-chart-warm: linear-gradient(
+    to right,
+    oklch(0.5583 0.1276 42.9956),
+    oklch(0.5608 0.1348 42.0584)
+  );
+  --gradient-chart-cool: linear-gradient(
+    to right,
+    oklch(0.6898 0.1581 290.4107),
+    oklch(0.5583 0.1276 42.9956)
+  );
 }

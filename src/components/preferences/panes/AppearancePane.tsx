@@ -32,6 +32,9 @@ export function AppearancePane() {
     default: t('preferences.appearance.colorTheme.default'),
     claude: t('preferences.appearance.colorTheme.claude'),
     perplexity: t('preferences.appearance.colorTheme.perplexity'),
+    'cosmic-night': t('preferences.appearance.colorTheme.cosmic-night'),
+    'modern-minimal': t('preferences.appearance.colorTheme.modern-minimal'),
+    'ocean-breeze': t('preferences.appearance.colorTheme.ocean-breeze'),
   }
 
   const handleThemeChange = (value: 'light' | 'dark' | 'system') => {
