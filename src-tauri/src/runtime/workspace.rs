@@ -8,8 +8,10 @@
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::api::types::{AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
-use crate::runtime::agents::AgentRegistry;
+use std::sync::Arc;
+
+use crate::api::types::{AgentId, AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
+use crate::runtime::agents::{AgentRegistry, AgentRuntime};
 
 /// Runtime state for a single workspace.
 ///
@@ -82,6 +84,37 @@ impl WorkspaceRuntime {
             .create_agent(plugin_id, display_name)
             .await?;
         Ok(record.to_summary(&self.workspace_id))
+    }
+
+    /// Get or create an AgentRuntime for the given agent.
+    ///
+    /// This is called during lazy startup (US-06) when the first prompt is sent.
+    /// The runtime is created if it doesn't exist.
+    ///
+    /// # Arguments
+    /// * `agent_id` - The agent to get runtime for
+    ///
+    /// # Returns
+    /// * `Ok(Arc<AgentRuntime>)` - The agent runtime
+    /// * `Err(ApiError::AgentNotFound)` - If agent doesn't exist
+    pub async fn ensure_agent_runtime(
+        &self,
+        agent_id: AgentId,
+    ) -> Result<Arc<AgentRuntime>, ApiError> {
+        self.agent_registry
+            .ensure_runtime(self.workspace_id.clone(), agent_id)
+            .await
+    }
+
+    /// Get the workspace ID.
+    #[allow(dead_code)]
+    pub fn workspace_id(&self) -> &WorkspaceId {
+        &self.workspace_id
+    }
+
+    /// Get the workspace root directory.
+    pub fn root_dir(&self) -> &PathBuf {
+        &self.root_dir
     }
 }
 

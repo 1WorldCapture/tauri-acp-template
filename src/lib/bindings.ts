@@ -308,6 +308,41 @@ async agentCreate(workspaceId: string, pluginId: string, displayName: string | n
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Send a prompt to an agent, triggering lazy startup if needed.
+ * 
+ * US-06: This command triggers agent lazy startup on first call.
+ * The agent is started (spawn/initialize/new_session) and session ID is returned.
+ * 
+ * Note: The `prompt` parameter is accepted but not used in US-06.
+ * Actual prompt sending will be implemented in US-07.
+ * 
+ * # Arguments
+ * * `workspace_id` - ID of the workspace containing the agent
+ * * `agent_id` - ID of the agent to send the prompt to
+ * * `prompt` - The user's prompt text (reserved for US-07)
+ * 
+ * # Returns
+ * * `SendPromptAck` - Contains the session ID for tracking responses
+ * 
+ * # Events Emitted
+ * * `agent/status_changed` - When agent starts (Starting → Running) or errors
+ * 
+ * # Errors
+ * * `ApiError::WorkspaceNotFound` - If workspace doesn't exist
+ * * `ApiError::AgentNotFound` - If agent doesn't exist in workspace
+ * * `ApiError::PluginNotInstalled` - If the agent's plugin is not installed
+ * * `ApiError::PluginMissingBinPath` - If plugin has no binary path
+ * * `ApiError::ProtocolError` - If ACP communication fails
+ */
+async chatSendPrompt(workspaceId: string, agentId: string, prompt: string) : Promise<Result<SendPromptAck, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("chat_send_prompt", { workspaceId, agentId, prompt }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -376,7 +411,19 @@ export type ApiError =
 /**
  * Plugin installation is already in progress
  */
-{ type: "pluginInstallInProgress"; pluginId: string }
+{ type: "pluginInstallInProgress"; pluginId: string } | 
+/**
+ * Plugin is not installed (required for lazy startup)
+ */
+{ type: "pluginNotInstalled"; pluginId: string } | 
+/**
+ * Plugin is installed but missing binary path in metadata
+ */
+{ type: "pluginMissingBinPath"; pluginId: string } | 
+/**
+ * Protocol error during ACP communication
+ */
+{ type: "protocolError"; message: string }
 /**
  * Application preferences that persist to disk.
  * Only contains settings that should be saved between sessions.
@@ -469,6 +516,14 @@ export type RecoveryError =
  * JSON serialization/deserialization error
  */
 { type: "ParseError"; message: string }
+/**
+ * Acknowledgment returned when a prompt is sent
+ */
+export type SendPromptAck = { 
+/**
+ * Session identifier for tracking responses
+ */
+sessionId: string }
 /**
  * Summary of a workspace returned to the frontend
  */

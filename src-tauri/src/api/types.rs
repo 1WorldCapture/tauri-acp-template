@@ -15,6 +15,9 @@ pub type OperationId = String;
 /// Unique identifier for an agent (UUID v4 string)
 pub type AgentId = String;
 
+/// Unique identifier for an ACP session (UUID v4 string)
+pub type SessionId = String;
+
 /// Summary of a workspace returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -138,6 +141,47 @@ pub struct AcpPluginStatusChangedEvent {
     pub error: Option<String>,
 }
 
+// ============================================================================
+// Agent Runtime Types (US-06+)
+// ============================================================================
+
+/// Acknowledgment returned when a prompt is sent
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SendPromptAck {
+    /// Session identifier for tracking responses
+    pub session_id: SessionId,
+}
+
+/// Runtime status of an agent
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "type")]
+pub enum AgentRuntimeStatus {
+    /// Agent is not running
+    Stopped,
+    /// Agent is starting up (spawn/initialize/new_session in progress)
+    Starting,
+    /// Agent is running with an active session
+    Running {
+        #[serde(rename = "sessionId")]
+        session_id: SessionId,
+    },
+    /// Agent encountered an error
+    Errored { message: String },
+}
+
+/// Event payload: agent status changed (agent/status_changed)
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentStatusChangedEvent {
+    /// Workspace this agent belongs to
+    pub workspace_id: WorkspaceId,
+    /// Agent identifier
+    pub agent_id: AgentId,
+    /// Current runtime status
+    pub status: AgentRuntimeStatus,
+}
+
 /// API errors for frontend consumption
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase", tag = "type")]
@@ -170,6 +214,18 @@ pub enum ApiError {
         #[serde(rename = "pluginId")]
         plugin_id: String,
     },
+    /// Plugin is not installed (required for lazy startup)
+    PluginNotInstalled {
+        #[serde(rename = "pluginId")]
+        plugin_id: String,
+    },
+    /// Plugin is installed but missing binary path in metadata
+    PluginMissingBinPath {
+        #[serde(rename = "pluginId")]
+        plugin_id: String,
+    },
+    /// Protocol error during ACP communication
+    ProtocolError { message: String },
 }
 
 impl std::fmt::Display for ApiError {
@@ -190,6 +246,15 @@ impl std::fmt::Display for ApiError {
             }
             ApiError::PluginInstallInProgress { plugin_id } => {
                 write!(f, "Plugin installation already in progress: {plugin_id}")
+            }
+            ApiError::PluginNotInstalled { plugin_id } => {
+                write!(f, "Plugin not installed: {plugin_id}")
+            }
+            ApiError::PluginMissingBinPath { plugin_id } => {
+                write!(f, "Plugin missing binary path: {plugin_id}")
+            }
+            ApiError::ProtocolError { message } => {
+                write!(f, "Protocol error: {message}")
             }
         }
     }

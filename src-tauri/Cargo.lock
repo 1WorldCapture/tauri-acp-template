@@ -4479,6 +4479,7 @@ dependencies = [
 name = "tauri-app"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "log",
  "regex",
  "serde",

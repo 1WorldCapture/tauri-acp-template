@@ -2,7 +2,8 @@ use tauri_specta::{collect_commands, Builder};
 
 pub fn generate_bindings() -> Builder<tauri::Wry> {
     use crate::commands::{
-        agents, notifications, permissions, plugins, preferences, quick_pane, recovery, workspaces,
+        agents, chat, notifications, permissions, plugins, preferences, quick_pane, recovery,
+        workspaces,
     };
 
     Builder::<tauri::Wry>::new().commands(collect_commands![
@@ -25,6 +26,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
         plugins::plugin_install,
         permissions::permission_respond,
         agents::agent_create,
+        chat::chat_send_prompt,
     ])
 }
 

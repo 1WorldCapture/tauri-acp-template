@@ -8,6 +8,7 @@ mod api;
 mod bindings;
 mod commands;
 mod plugins;
+mod protocols;
 mod runtime;
 mod types;
 mod utils;

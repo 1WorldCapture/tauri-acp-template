@@ -9,7 +9,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::api::types::{AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
+use crate::api::types::{AgentId, AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
+use crate::runtime::agents::AgentRuntime;
 use crate::runtime::path::canonicalize_workspace_root;
 use crate::runtime::workspace::WorkspaceRuntime;
 
@@ -166,6 +167,34 @@ impl WorkspaceManager {
 
         // Delegate to workspace runtime
         workspace.create_agent(plugin_id, display_name).await
+    }
+
+    /// Get or create an AgentRuntime for the given agent.
+    ///
+    /// This is an alternative entry point for lazy startup (US-06) when
+    /// the caller doesn't already have the workspace. If you have the workspace,
+    /// prefer calling `workspace.ensure_agent_runtime()` directly to avoid
+    /// redundant lookups.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - ID of the workspace the agent belongs to
+    /// * `agent_id` - ID of the agent to get runtime for
+    ///
+    /// # Returns
+    /// * `Ok(Arc<AgentRuntime>)` - The agent runtime
+    /// * `Err(ApiError::WorkspaceNotFound)` - If workspace doesn't exist
+    /// * `Err(ApiError::AgentNotFound)` - If agent doesn't exist in workspace
+    #[allow(dead_code)]
+    pub async fn ensure_agent_runtime(
+        &self,
+        workspace_id: WorkspaceId,
+        agent_id: AgentId,
+    ) -> Result<Arc<AgentRuntime>, ApiError> {
+        // Get workspace runtime
+        let workspace = self.get_workspace(&workspace_id).await?;
+
+        // Delegate to workspace runtime
+        workspace.ensure_agent_runtime(agent_id).await
     }
 }
 

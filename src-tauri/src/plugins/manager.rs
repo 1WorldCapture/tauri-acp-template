@@ -37,6 +37,19 @@ pub struct PluginInstallMetadata {
     pub bin_path: Option<String>,
 }
 
+/// Command specification for launching a plugin adapter.
+///
+/// Used by AgentRuntime to spawn the plugin process.
+#[derive(Debug, Clone)]
+pub struct PluginCommand {
+    /// Path to the executable binary
+    pub path: PathBuf,
+    /// Command-line arguments
+    pub args: Vec<String>,
+    /// Environment variables to set
+    pub env: Vec<(String, String)>,
+}
+
 /// Global plugin manager for checking installation status and managing plugins.
 ///
 /// This singleton is injected via `app.manage(PluginManager::new(app.handle().clone()))`.
@@ -295,6 +308,148 @@ impl PluginManager {
         log::info!("Plugin installed: plugin_id={plugin_id}, version={version:?}");
 
         Ok(())
+    }
+
+    /// Resolve the binary command for a plugin.
+    ///
+    /// Used by AgentRuntime during lazy startup to find the plugin executable.
+    /// This method does NOT trigger installation - if the plugin is not installed,
+    /// it returns `ApiError::PluginNotInstalled` to guide the frontend to US-04.
+    ///
+    /// # Arguments
+    ///
+    /// * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(PluginCommand)` - Command to spawn the plugin process
+    /// * `Err(ApiError::PluginNotInstalled)` - Plugin is not installed
+    /// * `Err(ApiError::PluginMissingBinPath)` - Plugin is installed but has no binary path
+    pub async fn resolve_bin(&self, plugin_id: String) -> Result<PluginCommand, ApiError> {
+        // Validate plugin ID
+        Self::validate_plugin_id(&plugin_id)?;
+
+        let plugins_root = self.plugins_root_dir()?;
+        let plugin_dir = plugins_root.join(&plugin_id);
+
+        // Check if plugin directory exists
+        if !plugin_dir.exists() || !plugin_dir.is_dir() {
+            return Err(ApiError::PluginNotInstalled {
+                plugin_id: plugin_id.clone(),
+            });
+        }
+
+        // Read metadata file
+        let metadata_path = plugin_dir.join("install.json");
+        if !metadata_path.exists() {
+            return Err(ApiError::PluginNotInstalled {
+                plugin_id: plugin_id.clone(),
+            });
+        }
+
+        let metadata_path_clone = metadata_path.clone();
+        let plugin_id_for_error = plugin_id.clone();
+        let metadata: PluginInstallMetadata = tokio::task::spawn_blocking(move || {
+            let content =
+                std::fs::read_to_string(&metadata_path_clone).map_err(|e| ApiError::IoError {
+                    message: format!("Failed to read install.json: {e}"),
+                })?;
+            serde_json::from_str(&content).map_err(|e| ApiError::IoError {
+                message: format!("Failed to parse install.json: {e}"),
+            })
+        })
+        .await
+        .map_err(|e| ApiError::IoError {
+            message: format!("Failed to spawn blocking task: {e}"),
+        })??;
+
+        // Check if bin_path is present
+        let bin_path_str = metadata
+            .bin_path
+            .ok_or_else(|| ApiError::PluginMissingBinPath {
+                plugin_id: plugin_id_for_error.clone(),
+            })?;
+
+        if bin_path_str.is_empty() {
+            return Err(ApiError::PluginMissingBinPath {
+                plugin_id: plugin_id.clone(),
+            });
+        }
+
+        // Security: Treat bin_path as relative to plugin_dir
+        // If it's absolute, we still validate it's under plugin_dir after canonicalization
+        let bin_path_raw = PathBuf::from(&bin_path_str);
+        let bin_path = if bin_path_raw.is_absolute() {
+            bin_path_raw
+        } else {
+            plugin_dir.join(&bin_path_raw)
+        };
+
+        // Verify the binary exists before canonicalization
+        if !bin_path.exists() {
+            log::warn!(
+                "Plugin '{}' has bin_path '{}' but file does not exist",
+                plugin_id,
+                bin_path_str
+            );
+            return Err(ApiError::PluginMissingBinPath {
+                plugin_id: plugin_id.clone(),
+            });
+        }
+
+        // Security: Canonicalize both paths to resolve symlinks and ".." components
+        let canonical_plugin_dir =
+            plugin_dir
+                .canonicalize()
+                .map_err(|e| ApiError::PluginMissingBinPath {
+                    plugin_id: format!("{}: failed to canonicalize plugin_dir: {}", plugin_id, e),
+                })?;
+
+        let canonical_bin =
+            bin_path
+                .canonicalize()
+                .map_err(|e| ApiError::PluginMissingBinPath {
+                    plugin_id: format!("{}: failed to canonicalize bin_path: {}", plugin_id, e),
+                })?;
+
+        // Security: Ensure the binary is under the plugin directory (prevent path traversal)
+        if !canonical_bin.starts_with(&canonical_plugin_dir) {
+            log::error!(
+                "Security violation: Plugin '{}' bin_path '{}' resolves outside plugin directory",
+                plugin_id,
+                bin_path_str
+            );
+            return Err(ApiError::InvalidInput {
+                message: format!(
+                    "Plugin binary path must be within plugin directory: {}",
+                    plugin_id
+                ),
+            });
+        }
+
+        // Security: Verify it's a regular file (not a directory or other special file)
+        let metadata = canonical_bin.metadata().map_err(|e| ApiError::IoError {
+            message: format!("Failed to get file metadata for plugin binary: {}", e),
+        })?;
+
+        if !metadata.is_file() {
+            log::error!(
+                "Plugin '{}' bin_path '{}' is not a regular file",
+                plugin_id,
+                bin_path_str
+            );
+            return Err(ApiError::InvalidInput {
+                message: format!("Plugin binary must be a regular file: {}", plugin_id),
+            });
+        }
+
+        log::debug!("Resolved plugin binary: plugin_id={plugin_id}, path={canonical_bin:?}");
+
+        Ok(PluginCommand {
+            path: canonical_bin,
+            args: Vec::new(),
+            env: Vec::new(),
+        })
     }
 }
 

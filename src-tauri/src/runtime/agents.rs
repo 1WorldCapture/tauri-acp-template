@@ -1,16 +1,27 @@
 //! Agent registry for managing agent entities within a workspace.
 //!
-//! This module provides the `AgentRegistry` which stores agent records
-//! for a single workspace. Agents are created as entities first (not started),
-//! and lazily started when the first prompt is sent (US-06).
+//! This module provides:
+//! - `AgentRegistry`: stores agent records for a single workspace
+//! - `AgentRuntime`: manages the runtime state of a started agent (US-06+)
+//!
+//! Agents are created as entities first (not started), and lazily started
+//! when the first prompt is sent (US-06).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::api::types::{AgentId, AgentSummary, ApiError, WorkspaceId};
+use crate::api::types::{
+    AgentId, AgentRuntimeStatus, AgentSummary, ApiError, SessionId, WorkspaceId,
+};
 use crate::plugins::manager::PluginManager;
+use crate::protocols::acp::AcpAgent;
+use crate::protocols::agent_connection::AgentConnection;
+use crate::protocols::host::AgentHost;
+use crate::runtime::agent_host::RuntimeAgentHost;
 
 /// Internal record for an agent entity (not yet started).
 ///
@@ -39,6 +50,195 @@ impl AgentRecord {
     }
 }
 
+// ============================================================================
+// AgentRuntime (US-06+)
+// ============================================================================
+
+/// Runtime state of a started agent.
+///
+/// Created when an agent is lazily started (first prompt sent).
+/// Holds the connection to the agent process and manages session state.
+pub struct AgentRuntime {
+    /// Agent identifier
+    agent_id: AgentId,
+    /// Workspace identifier
+    workspace_id: WorkspaceId,
+    /// Plugin identifier
+    plugin_id: String,
+    /// Current runtime status
+    status: Mutex<AgentRuntimeStatus>,
+    /// Active session ID (if running)
+    session_id: Mutex<Option<SessionId>>,
+    /// Protocol connection (if running)
+    connection: Mutex<Option<Arc<dyn AgentConnection>>>,
+    /// Lock to prevent concurrent startup attempts
+    start_lock: Mutex<()>,
+    /// App handle for emitting events (set during ensure_started)
+    app: Mutex<Option<tauri::AppHandle>>,
+}
+
+impl AgentRuntime {
+    /// Create a new AgentRuntime in Stopped state.
+    pub fn new(agent_id: AgentId, workspace_id: WorkspaceId, plugin_id: String) -> Arc<Self> {
+        Arc::new(Self {
+            agent_id,
+            workspace_id,
+            plugin_id,
+            status: Mutex::new(AgentRuntimeStatus::Stopped),
+            session_id: Mutex::new(None),
+            connection: Mutex::new(None),
+            start_lock: Mutex::new(()),
+            app: Mutex::new(None),
+        })
+    }
+
+    /// Ensure the agent is started and return the session ID.
+    ///
+    /// This method is idempotent: if already started, returns the existing session ID.
+    /// On first call, it:
+    /// 1. Resolves the plugin binary via PluginManager
+    /// 2. Spawns the agent process via AcpAgent
+    /// 3. Initializes the connection and creates a session
+    /// 4. Emits `agent/status_changed` events
+    ///
+    /// # Arguments
+    /// * `app` - Tauri application handle for events
+    /// * `workspace_root` - Root directory of the workspace
+    /// * `plugin_manager` - For resolving the plugin binary
+    ///
+    /// # Returns
+    /// * `Ok(SessionId)` - The session ID (existing or newly created)
+    /// * `Err(ApiError)` - Plugin not installed, spawn failed, etc.
+    pub async fn ensure_started(
+        self: &Arc<Self>,
+        app: tauri::AppHandle,
+        workspace_root: PathBuf,
+        plugin_manager: Arc<PluginManager>,
+    ) -> Result<SessionId, ApiError> {
+        // Fast path: already running
+        {
+            let session_id_guard = self.session_id.lock().await;
+            if let Some(ref session_id) = *session_id_guard {
+                log::debug!(
+                    "Agent already started: agent={}, session={}",
+                    self.agent_id,
+                    session_id
+                );
+                return Ok(session_id.clone());
+            }
+        }
+
+        // Acquire start lock to prevent concurrent startup
+        let _start_guard = self.start_lock.lock().await;
+
+        // Double-check after acquiring lock
+        {
+            let session_id_guard = self.session_id.lock().await;
+            if let Some(ref session_id) = *session_id_guard {
+                log::debug!(
+                    "Agent started by another task: agent={}, session={}",
+                    self.agent_id,
+                    session_id
+                );
+                return Ok(session_id.clone());
+            }
+        }
+
+        // Update status to Starting
+        {
+            let mut status = self.status.lock().await;
+            *status = AgentRuntimeStatus::Starting;
+        }
+
+        // Create host for callbacks
+        let host = RuntimeAgentHost::new(
+            app.clone(),
+            self.workspace_id.clone(),
+            self.agent_id.clone(),
+        );
+
+        // Emit Starting status
+        host.set_status(AgentRuntimeStatus::Starting);
+
+        // Resolve plugin binary
+        let plugin_command = match plugin_manager.resolve_bin(self.plugin_id.clone()).await {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                log::error!(
+                    "Failed to resolve plugin binary: agent={}, plugin={}, error={}",
+                    self.agent_id,
+                    self.plugin_id,
+                    e
+                );
+                let error_status = AgentRuntimeStatus::Errored {
+                    message: e.to_string(),
+                };
+                *self.status.lock().await = error_status.clone();
+                host.set_status(error_status);
+                return Err(e);
+            }
+        };
+
+        log::info!(
+            "Starting agent: agent={}, plugin={}, bin={:?}",
+            self.agent_id,
+            self.plugin_id,
+            plugin_command.path
+        );
+
+        // Connect via ACP
+        let (connection, session_id) =
+            match AcpAgent::connect(plugin_command, workspace_root, host.clone()).await {
+                Ok(result) => result,
+                Err(e) => {
+                    log::error!(
+                        "Failed to connect to agent: agent={}, error={}",
+                        self.agent_id,
+                        e
+                    );
+                    let error_status = AgentRuntimeStatus::Errored {
+                        message: e.to_string(),
+                    };
+                    *self.status.lock().await = error_status.clone();
+                    host.set_status(error_status);
+                    return Err(e);
+                }
+            };
+
+        // Store connection, session, and app handle
+        {
+            let mut conn_guard = self.connection.lock().await;
+            *conn_guard = Some(connection);
+        }
+        {
+            let mut session_guard = self.session_id.lock().await;
+            *session_guard = Some(session_id.clone());
+        }
+        {
+            let mut app_guard = self.app.lock().await;
+            *app_guard = Some(app);
+        }
+
+        // Update status to Running
+        let running_status = AgentRuntimeStatus::Running {
+            session_id: session_id.clone(),
+        };
+        {
+            let mut status = self.status.lock().await;
+            *status = running_status.clone();
+        }
+        host.set_status(running_status);
+
+        log::info!(
+            "Agent started: agent={}, session={}",
+            self.agent_id,
+            session_id
+        );
+
+        Ok(session_id)
+    }
+}
+
 /// Registry of agent entities within a single workspace.
 ///
 /// Thread-safe: Uses tokio::sync::Mutex for concurrent access.
@@ -46,6 +246,8 @@ impl AgentRecord {
 pub struct AgentRegistry {
     /// Map of agent ID to agent record
     agents: Mutex<HashMap<AgentId, AgentRecord>>,
+    /// Map of agent ID to agent runtime (lazily created on first prompt)
+    runtimes: Mutex<HashMap<AgentId, Arc<AgentRuntime>>>,
 }
 
 impl AgentRegistry {
@@ -53,6 +255,7 @@ impl AgentRegistry {
     pub fn new() -> Self {
         Self {
             agents: Mutex::new(HashMap::new()),
+            runtimes: Mutex::new(HashMap::new()),
         }
     }
 
@@ -102,6 +305,73 @@ impl AgentRegistry {
         }
 
         Ok(record)
+    }
+
+    /// Get an agent record by ID.
+    ///
+    /// # Arguments
+    /// * `agent_id` - The agent to look up
+    ///
+    /// # Returns
+    /// * `Ok(AgentRecord)` - The agent record
+    /// * `Err(ApiError::AgentNotFound)` - If agent doesn't exist
+    pub async fn get_agent(&self, agent_id: &AgentId) -> Result<AgentRecord, ApiError> {
+        let agents = self.agents.lock().await;
+        agents
+            .get(agent_id)
+            .cloned()
+            .ok_or_else(|| ApiError::AgentNotFound {
+                agent_id: agent_id.clone(),
+            })
+    }
+
+    /// Get or create an AgentRuntime for the given agent.
+    ///
+    /// This is called during lazy startup to get the runtime handle.
+    /// The runtime is created if it doesn't exist.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - The workspace this agent belongs to
+    /// * `agent_id` - The agent to get runtime for
+    ///
+    /// # Returns
+    /// * `Ok(Arc<AgentRuntime>)` - The agent runtime (existing or newly created)
+    /// * `Err(ApiError::AgentNotFound)` - If agent doesn't exist in registry
+    pub async fn ensure_runtime(
+        &self,
+        workspace_id: WorkspaceId,
+        agent_id: AgentId,
+    ) -> Result<Arc<AgentRuntime>, ApiError> {
+        // Verify agent exists
+        let record = self.get_agent(&agent_id).await?;
+
+        // Check if runtime already exists
+        {
+            let runtimes = self.runtimes.lock().await;
+            if let Some(runtime) = runtimes.get(&agent_id) {
+                return Ok(runtime.clone());
+            }
+        }
+
+        // Create new runtime
+        let runtime = AgentRuntime::new(agent_id.clone(), workspace_id, record.plugin_id);
+
+        // Insert into runtimes map
+        {
+            let mut runtimes = self.runtimes.lock().await;
+            // Double-check in case another task created it
+            if let Some(existing) = runtimes.get(&agent_id) {
+                return Ok(existing.clone());
+            }
+            runtimes.insert(agent_id.clone(), runtime.clone());
+            log::debug!(
+                "Created agent runtime: agent={}, total_runtimes={}",
+                agent_id,
+                runtimes.len()
+            );
+        }
+
+        Ok(runtime)
     }
 }
 
