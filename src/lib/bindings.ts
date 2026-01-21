@@ -165,6 +165,42 @@ async workspaceCreate(rootDir: string) : Promise<Result<WorkspaceSummary, ApiErr
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Sets the currently focused workspace.
+ * 
+ * # Arguments
+ * * `workspace_id` - ID of the workspace to focus
+ * 
+ * # Returns
+ * * `()` - Focus was set successfully
+ * 
+ * # Errors
+ * * `ApiError::InvalidInput` - If workspace_id is empty
+ * * `ApiError::WorkspaceNotFound` - If the workspace does not exist
+ */
+async workspaceSetFocus(workspaceId: string) : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("workspace_set_focus", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Gets the currently focused workspace ID.
+ * 
+ * # Returns
+ * * `Some(WorkspaceId)` - ID of the focused workspace
+ * * `None` - No workspace is currently focused
+ */
+async workspaceGetFocus() : Promise<Result<string | null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("workspace_get_focus") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -197,7 +233,11 @@ export type ApiError =
 /**
  * IO error during file system operation
  */
-{ type: "IoError"; message: string }
+{ type: "IoError"; message: string } | 
+/**
+ * Workspace not found by ID
+ */
+{ type: "WorkspaceNotFound"; workspace_id: string }
 /**
  * Application preferences that persist to disk.
  * Only contains settings that should be saved between sessions.

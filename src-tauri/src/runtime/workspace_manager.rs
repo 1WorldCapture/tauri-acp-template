@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::api::types::{ApiError, WorkspaceSummary};
+use crate::api::types::{ApiError, WorkspaceId, WorkspaceSummary};
 use crate::runtime::path::canonicalize_workspace_root;
 use crate::runtime::workspace::WorkspaceRuntime;
 
@@ -20,6 +20,8 @@ use crate::runtime::workspace::WorkspaceRuntime;
 pub struct WorkspaceManager {
     /// Map of workspace ID to runtime
     workspaces: Mutex<HashMap<String, Arc<WorkspaceRuntime>>>,
+    /// Currently focused workspace ID (UI state)
+    focused_workspace_id: Mutex<Option<WorkspaceId>>,
 }
 
 impl WorkspaceManager {
@@ -28,6 +30,7 @@ impl WorkspaceManager {
         log::debug!("Initializing WorkspaceManager");
         Self {
             workspaces: Mutex::new(HashMap::new()),
+            focused_workspace_id: Mutex::new(None),
         }
     }
 
@@ -73,6 +76,52 @@ impl WorkspaceManager {
 
         Ok(summary)
     }
+
+    /// Sets the currently focused workspace.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - ID of the workspace to focus
+    ///
+    /// # Returns
+    /// * `Ok(())` - Focus was set successfully
+    /// * `Err(ApiError::InvalidInput)` - If workspace_id is empty
+    /// * `Err(ApiError::WorkspaceNotFound)` - If workspace does not exist
+    pub async fn set_focus(&self, workspace_id: WorkspaceId) -> Result<(), ApiError> {
+        if workspace_id.trim().is_empty() {
+            return Err(ApiError::InvalidInput {
+                message: "Workspace ID cannot be empty".to_string(),
+            });
+        }
+
+        // Verify workspace exists (lock then drop before acquiring next lock)
+        {
+            let workspaces = self.workspaces.lock().await;
+            if !workspaces.contains_key(&workspace_id) {
+                return Err(ApiError::WorkspaceNotFound {
+                    workspace_id: workspace_id.clone(),
+                });
+            }
+        }
+
+        // Set focus
+        {
+            let mut focused = self.focused_workspace_id.lock().await;
+            *focused = Some(workspace_id.clone());
+            log::info!("Workspace focus set: {workspace_id}");
+        }
+
+        Ok(())
+    }
+
+    /// Gets the currently focused workspace ID.
+    ///
+    /// # Returns
+    /// * `Some(WorkspaceId)` - ID of the focused workspace
+    /// * `None` - No workspace is currently focused
+    pub async fn get_focus(&self) -> Option<WorkspaceId> {
+        let focused = self.focused_workspace_id.lock().await;
+        focused.clone()
+    }
 }
 
 impl Default for WorkspaceManager {
@@ -115,5 +164,79 @@ mod tests {
         let result = manager.create_workspace("").await;
 
         assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_focus_default_none() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager.get_focus().await;
+
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_set_and_get_focus() {
+        let manager = WorkspaceManager::new();
+        let temp_dir = env::temp_dir();
+
+        // Create a workspace first
+        let summary = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Set focus to the created workspace
+        let result = manager.set_focus(summary.workspace_id.clone()).await;
+        assert!(result.is_ok());
+
+        // Verify focus is set
+        let focused = manager.get_focus().await;
+        assert_eq!(focused, Some(summary.workspace_id));
+    }
+
+    #[tokio::test]
+    async fn test_set_focus_unknown_workspace() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager.set_focus("nonexistent-workspace-id".to_string()).await;
+
+        assert!(matches!(
+            result,
+            Err(ApiError::WorkspaceNotFound { workspace_id }) if workspace_id == "nonexistent-workspace-id"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_set_focus_empty_workspace_id() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager.set_focus("".to_string()).await;
+
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_focus_switch() {
+        let manager = WorkspaceManager::new();
+        let temp_dir = env::temp_dir();
+
+        // Create two workspaces
+        let summary_a = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        let summary_b = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Set focus to A
+        manager.set_focus(summary_a.workspace_id.clone()).await.unwrap();
+        assert_eq!(manager.get_focus().await, Some(summary_a.workspace_id));
+
+        // Switch focus to B
+        manager.set_focus(summary_b.workspace_id.clone()).await.unwrap();
+        assert_eq!(manager.get_focus().await, Some(summary_b.workspace_id));
     }
 }

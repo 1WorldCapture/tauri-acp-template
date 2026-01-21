@@ -34,6 +34,8 @@ pub enum ApiError {
     PathNotDirectory { path: String },
     /// IO error during file system operation
     IoError { message: String },
+    /// Workspace not found by ID
+    WorkspaceNotFound { workspace_id: WorkspaceId },
 }
 
 impl std::fmt::Display for ApiError {
@@ -43,6 +45,9 @@ impl std::fmt::Display for ApiError {
             ApiError::PathNotFound { path } => write!(f, "Path not found: {path}"),
             ApiError::PathNotDirectory { path } => write!(f, "Path is not a directory: {path}"),
             ApiError::IoError { message } => write!(f, "IO error: {message}"),
+            ApiError::WorkspaceNotFound { workspace_id } => {
+                write!(f, "Workspace not found: {workspace_id}")
+            }
         }
     }
 }
