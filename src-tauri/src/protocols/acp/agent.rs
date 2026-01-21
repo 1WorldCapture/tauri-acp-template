@@ -19,13 +19,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
-use crate::api::types::{ApiError, SessionId};
+use crate::api::types::{ApiError, PermissionSource, SessionId};
 use crate::plugins::manager::PluginCommand;
 use crate::protocols::agent_connection::AgentConnection;
-use crate::protocols::host::AgentHost;
+use crate::protocols::host::{AgentHost, PermissionRequest, TerminalRunRequest};
 
 /// JSON-RPC method name for sending prompts (US-07)
 const METHOD_SEND_PROMPT: &str = "session/prompt";
@@ -33,13 +33,21 @@ const METHOD_SEND_PROMPT: &str = "session/prompt";
 /// JSON-RPC method name for session notifications (US-07)
 const METHOD_SESSION_NOTIFICATION: &str = "session/notification";
 
+/// JSON-RPC method name for permission requests (US-08)
+const METHOD_REQUEST_PERMISSION: &str = "request_permission";
+
+/// JSON-RPC method name for terminal run requests (US-08)
+const METHOD_TERMINAL_RUN: &str = "terminal/run";
+
+const MAX_INFLIGHT_REQUESTS: usize = 8;
+
 /// ACP protocol implementation using STDIO subprocess.
 pub struct AcpAgent {
     /// The spawned child process (used by shutdown)
     #[allow(dead_code)]
     child: Mutex<Option<Child>>,
     /// Standard input handle for sending prompts (US-07)
-    stdin: Mutex<Option<tokio::process::ChildStdin>>,
+    stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     /// Session ID assigned during new_session
     session_id: SessionId,
     /// Host for callbacks (status updates, used by stdout reader task)
@@ -148,9 +156,15 @@ impl AcpAgent {
             log::debug!("Adapter stderr closed");
         });
 
+        let stdin = Arc::new(Mutex::new(Some(stdin)));
+
+        let request_semaphore = Arc::new(Semaphore::new(MAX_INFLIGHT_REQUESTS));
+
         // Spawn stdout reader task - US-07: Parse JSON and handle session updates
         let host_for_stdout = host.clone();
         let session_id_for_stdout = session_id.clone();
+        let stdin_for_stdout = stdin.clone();
+        let semaphore_for_stdout = request_semaphore.clone();
         let _stdout_task = tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
@@ -159,51 +173,84 @@ impl AcpAgent {
                 // Try to parse as JSON
                 match serde_json::from_str::<serde_json::Value>(&line) {
                     Ok(json) => {
-                        // Check if it's a notification (has "method" field)
-                        if let Some(method) = json.get("method").and_then(|m| m.as_str()) {
-                            if method == METHOD_SESSION_NOTIFICATION {
-                                // Parse params as AcpSessionUpdate
-                                if let Some(params) = json.get("params") {
-                                    // Try to extract sessionId from the notification payload
-                                    // Fall back to locally stored session_id if not present
-                                    let notification_session_id = params
-                                        .get("sessionId")
-                                        .and_then(|s| s.as_str())
-                                        .map(|s| s.to_string())
-                                        .unwrap_or_else(|| session_id_for_stdout.clone());
+                        let method = json
+                            .get("method")
+                            .and_then(|m| m.as_str())
+                            .map(|value| value.to_string());
+                        let id = json.get("id").cloned();
 
-                                    match serde_json::from_value::<
-                                        crate::api::types::AcpSessionUpdate,
-                                    >(params.clone())
-                                    {
-                                        Ok(update) => {
-                                            host_for_stdout.on_session_update(
-                                                notification_session_id.clone(),
-                                                update,
-                                            );
+                        if let Some(method) = method {
+                            if id.is_none() {
+                                if method == METHOD_SESSION_NOTIFICATION {
+                                    // Parse params as AcpSessionUpdate
+                                    if let Some(params) = json.get("params") {
+                                        // Try to extract sessionId from the notification payload
+                                        // Fall back to locally stored session_id if not present
+                                        let notification_session_id = params
+                                            .get("sessionId")
+                                            .and_then(|s| s.as_str())
+                                            .map(|s| s.to_string())
+                                            .unwrap_or_else(|| session_id_for_stdout.clone());
+
+                                        match serde_json::from_value::<
+                                            crate::api::types::AcpSessionUpdate,
+                                        >(
+                                            params.clone()
+                                        ) {
+                                            Ok(update) => {
+                                                host_for_stdout.on_session_update(
+                                                    notification_session_id.clone(),
+                                                    update,
+                                                );
+                                            }
+                                            Err(e) => {
+                                                // Parsing failed, wrap as Raw
+                                                log::debug!(
+                                                    "Failed to parse session update, using Raw: {e}"
+                                                );
+                                                let raw_update =
+                                                    crate::api::types::AcpSessionUpdate::Raw {
+                                                        json: params.clone(),
+                                                    };
+                                                host_for_stdout.on_session_update(
+                                                    notification_session_id,
+                                                    raw_update,
+                                                );
+                                            }
                                         }
-                                        Err(e) => {
-                                            // Parsing failed, wrap as Raw
-                                            log::debug!(
-                                                "Failed to parse session update, using Raw: {e}"
-                                            );
-                                            let raw_update =
-                                                crate::api::types::AcpSessionUpdate::Raw {
-                                                    json: params.clone(),
-                                                };
-                                            host_for_stdout.on_session_update(
-                                                notification_session_id,
-                                                raw_update,
-                                            );
-                                        }
+                                    } else {
+                                        log::debug!(
+                                            "[acp] Session notification missing params: {method}"
+                                        );
                                     }
                                 } else {
-                                    log::debug!(
-                                        "[acp] Session notification missing params: {method}"
-                                    );
+                                    log::debug!("[acp] Unknown notification method: {method}");
                                 }
                             } else {
-                                log::debug!("[acp] Unknown notification method: {method}");
+                                let host_for_request = host_for_stdout.clone();
+                                let stdin_for_request = stdin_for_stdout.clone();
+                                let request_id = id.unwrap_or(serde_json::Value::Null);
+                                let params = json.get("params").cloned();
+                                let fallback_session_id = session_id_for_stdout.clone();
+                                let semaphore_for_request = semaphore_for_stdout.clone();
+
+                                let permit = match semaphore_for_request.acquire_owned().await {
+                                    Ok(permit) => permit,
+                                    Err(_) => break,
+                                };
+
+                                tokio::spawn(async move {
+                                    let _permit = permit;
+                                    handle_request(
+                                        host_for_request,
+                                        stdin_for_request,
+                                        method,
+                                        request_id,
+                                        params,
+                                        fallback_session_id,
+                                    )
+                                    .await;
+                                });
                             }
                         } else if json.get("id").is_some() {
                             // It's a response (has "id" field), log for now
@@ -237,7 +284,7 @@ impl AcpAgent {
 
         let agent = Arc::new(Self {
             child: Mutex::new(Some(child)),
-            stdin: Mutex::new(Some(stdin)),
+            stdin,
             session_id: session_id.clone(),
             host,
         });
@@ -323,5 +370,143 @@ impl AgentConnection for AcpAgent {
 impl Drop for AcpAgent {
     fn drop(&mut self) {
         log::debug!("AcpAgent dropped: session={}", self.session_id);
+    }
+}
+
+async fn handle_request(
+    host: Arc<dyn AgentHost>,
+    stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
+    method: String,
+    id: serde_json::Value,
+    params: Option<serde_json::Value>,
+    fallback_session_id: SessionId,
+) {
+    let params = params.unwrap_or(serde_json::Value::Null);
+
+    let response = match method.as_str() {
+        METHOD_REQUEST_PERMISSION => {
+            let session_id = extract_string(&params, &["sessionId", "session_id"])
+                .or(Some(fallback_session_id.clone()));
+            let tool_call_id = extract_string(&params, &["toolCallId", "tool_call_id"]);
+            let operation_id = extract_string(&params, &["operationId", "operation_id"]);
+            let command = extract_command(&params)
+                .or_else(|| extract_string(&params, &["summary"]))
+                .unwrap_or_else(|| "terminal command".to_string());
+
+            let request = PermissionRequest {
+                source: PermissionSource::TerminalRun { command },
+                session_id,
+                tool_call_id,
+                operation_id,
+            };
+
+            match host.request_permission(request).await {
+                Ok(decision) => {
+                    let decision_value = serde_json::Value::String(match decision {
+                        crate::api::types::PermissionDecision::AllowOnce => "AllowOnce".to_string(),
+                        crate::api::types::PermissionDecision::Deny => "Deny".to_string(),
+                    });
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": decision_value
+                    })
+                }
+                Err(e) => jsonrpc_error(id, -32000, &e.to_string()),
+            }
+        }
+        METHOD_TERMINAL_RUN => {
+            let command = extract_command(&params);
+            if command.is_none() {
+                jsonrpc_error(id, -32602, "Missing command")
+            } else {
+                let operation_id = extract_string(&params, &["operationId", "operation_id"]);
+
+                let request = TerminalRunRequest {
+                    command: command.unwrap_or_default(),
+                    operation_id,
+                };
+
+                match host.terminal_run(request).await {
+                    Ok(result) => serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "terminalId": result.terminal_id,
+                            "exitCode": result.exit_code,
+                            "stdout": result.stdout,
+                            "stderr": result.stderr
+                        }
+                    }),
+                    Err(e) => jsonrpc_error(id, -32000, &e.to_string()),
+                }
+            }
+        }
+        _ => jsonrpc_error(id, -32601, "Method not found"),
+    };
+
+    if let Err(e) = send_jsonrpc_response(&stdin, response).await {
+        log::warn!("Failed to send JSON-RPC response: {e}");
+    }
+}
+
+fn extract_command(params: &serde_json::Value) -> Option<String> {
+    extract_string(params, &["command", "commandString", "cmd"]).or_else(|| {
+        params
+            .get("details")
+            .and_then(|details| extract_string(details, &["command", "commandString", "cmd"]))
+    })
+}
+
+fn extract_string(params: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        params
+            .get(*key)
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string())
+    })
+}
+
+fn jsonrpc_error(id: serde_json::Value, code: i64, message: &str) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message
+        }
+    })
+}
+
+async fn send_jsonrpc_response(
+    stdin: &Arc<Mutex<Option<tokio::process::ChildStdin>>>,
+    response: serde_json::Value,
+) -> Result<(), ApiError> {
+    let message = serde_json::to_string(&response).map_err(|e| ApiError::ProtocolError {
+        message: format!("Failed to serialize JSON-RPC response: {e}"),
+    })?;
+
+    let mut stdin_guard = stdin.lock().await;
+    if let Some(stdin) = stdin_guard.as_mut() {
+        stdin
+            .write_all(message.as_bytes())
+            .await
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to write to stdin: {e}"),
+            })?;
+        stdin
+            .write_all(b"\n")
+            .await
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to write newline: {e}"),
+            })?;
+        stdin.flush().await.map_err(|e| ApiError::IoError {
+            message: format!("Failed to flush stdin: {e}"),
+        })?;
+        Ok(())
+    } else {
+        Err(ApiError::ProtocolError {
+            message: "stdin not available".to_string(),
+        })
     }
 }

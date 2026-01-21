@@ -7,7 +7,37 @@
 //! These are captured by the runtime's AgentHost implementation and attached
 //! to events when emitting to the frontend.
 
-use crate::api::types::{AcpSessionUpdate, AgentRuntimeStatus, SessionId};
+use async_trait::async_trait;
+
+use crate::api::types::{
+    AcpSessionUpdate, AgentRuntimeStatus, ApiError, OperationId, PermissionDecision,
+    PermissionSource, SessionId, TerminalId,
+};
+
+/// Permission request from a protocol adapter.
+#[derive(Debug, Clone)]
+pub struct PermissionRequest {
+    pub source: PermissionSource,
+    pub session_id: Option<SessionId>,
+    pub tool_call_id: Option<String>,
+    pub operation_id: Option<OperationId>,
+}
+
+/// Terminal run request from a protocol adapter.
+#[derive(Debug, Clone)]
+pub struct TerminalRunRequest {
+    pub command: String,
+    pub operation_id: Option<OperationId>,
+}
+
+/// Terminal run result returned to the protocol adapter.
+#[derive(Debug, Clone)]
+pub struct TerminalRunResult {
+    pub terminal_id: TerminalId,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
 
 /// Callback interface for protocol implementations to interact with runtime.
 ///
@@ -19,6 +49,7 @@ use crate::api::types::{AcpSessionUpdate, AgentRuntimeStatus, SessionId};
 /// US-07: Adds `on_session_update()` method for streaming session updates.
 ///        Adds `on_connection_lost()` for process exit cleanup.
 /// US-08/10/11: Will add permission and capability methods.
+#[async_trait]
 pub trait AgentHost: Send + Sync {
     /// Update the agent's runtime status.
     ///
@@ -43,4 +74,16 @@ pub trait AgentHost: Send + Sync {
     /// The runtime implementation should clean up connection state.
     /// This is advisory - the runtime may choose to keep state for debugging.
     fn on_connection_lost(&self);
+
+    /// Request permission from the user and await decision (US-08).
+    async fn request_permission(
+        &self,
+        request: PermissionRequest,
+    ) -> Result<PermissionDecision, ApiError>;
+
+    /// Execute a terminal command (US-08).
+    async fn terminal_run(
+        &self,
+        request: TerminalRunRequest,
+    ) -> Result<TerminalRunResult, ApiError>;
 }

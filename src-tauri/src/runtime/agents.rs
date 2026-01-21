@@ -22,6 +22,8 @@ use crate::protocols::acp::AcpAgent;
 use crate::protocols::agent_connection::AgentConnection;
 use crate::protocols::host::AgentHost;
 use crate::runtime::agent_host::RuntimeAgentHost;
+use crate::runtime::permissions::PermissionHub;
+use crate::runtime::terminal::TerminalManager;
 
 /// Internal record for an agent entity (not yet started).
 ///
@@ -114,6 +116,8 @@ impl AgentRuntime {
         app: tauri::AppHandle,
         workspace_root: PathBuf,
         plugin_manager: Arc<PluginManager>,
+        permission_hub: Arc<PermissionHub>,
+        terminal_manager: Arc<TerminalManager>,
     ) -> Result<SessionId, ApiError> {
         // Fast path: already running
         {
@@ -155,6 +159,8 @@ impl AgentRuntime {
             app.clone(),
             self.workspace_id.clone(),
             self.agent_id.clone(),
+            permission_hub,
+            terminal_manager,
         );
 
         // Emit Starting status

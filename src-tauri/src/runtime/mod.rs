@@ -8,5 +8,6 @@ pub mod agents;
 pub mod path;
 pub mod permissions;
 pub mod plugin_installer;
+pub mod terminal;
 pub mod workspace;
 pub mod workspace_manager;

@@ -88,6 +88,11 @@ impl PermissionHub {
         // Store the sender
         {
             let mut pending = self.pending.lock().await;
+            if pending.contains_key(&operation_id) {
+                return Err(ApiError::InvalidInput {
+                    message: format!("Operation already pending: {operation_id}"),
+                });
+            }
             pending.insert(operation_id.clone(), PendingPermission { tx });
         }
 

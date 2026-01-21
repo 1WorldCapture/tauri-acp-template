@@ -6,10 +6,11 @@
 
 use std::sync::Arc;
 
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::api::types::{AgentId, ApiError, SendPromptAck, WorkspaceId};
 use crate::plugins::manager::PluginManager;
+use crate::runtime::permissions::PermissionHub;
 use crate::runtime::workspace_manager::WorkspaceManager;
 
 /// Inner function for testing without Tauri State wrapper.
@@ -26,13 +27,21 @@ async fn chat_send_prompt_inner(
     // Get workspace to access root_dir and agent registry
     let workspace = workspace_manager.get_workspace(&workspace_id).await?;
     let workspace_root = workspace.root_dir().clone();
+    let terminal_manager = workspace.terminal_manager();
+    let permission_hub = app.state::<Arc<PermissionHub>>().inner().clone();
 
     // Ensure agent runtime exists (use workspace directly to avoid redundant lookup)
     let agent_runtime = workspace.ensure_agent_runtime(agent_id.clone()).await?;
 
     // Ensure agent is started (lazy startup on first prompt)
     let session_id = agent_runtime
-        .ensure_started(app, workspace_root, plugin_manager)
+        .ensure_started(
+            app,
+            workspace_root,
+            plugin_manager,
+            permission_hub,
+            terminal_manager,
+        )
         .await?;
 
     log::info!("Agent started: workspace={workspace_id}, agent={agent_id}, session={session_id}");

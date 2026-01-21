@@ -2,7 +2,7 @@
 //!
 //! Each workspace has its own runtime that holds:
 //! - AgentRegistry (agents within this workspace)
-//! - Future: TerminalManager (terminals for this workspace)
+//! - TerminalManager (terminals for this workspace)
 //! - Future: FsManager (file system operations scoped to this workspace)
 
 use std::path::PathBuf;
@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use crate::api::types::{AgentId, AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
 use crate::runtime::agents::{AgentRegistry, AgentRuntime};
+use crate::runtime::terminal::TerminalManager;
 
 /// Runtime state for a single workspace.
 ///
@@ -26,8 +27,9 @@ pub struct WorkspaceRuntime {
     created_at_ms: f64,
     /// Registry of agent entities within this workspace
     agent_registry: AgentRegistry,
+    /// Terminal manager scoped to this workspace
+    terminal_manager: Arc<TerminalManager>,
     // Future additions for subsequent user stories:
-    // terminal_manager: TerminalManager,
     // fs_manager: FsManager,
 }
 
@@ -48,11 +50,14 @@ impl WorkspaceRuntime {
             root_dir.display()
         );
 
+        let terminal_manager = Arc::new(TerminalManager::new(root_dir.clone()));
+
         Self {
             workspace_id,
             root_dir,
             created_at_ms,
             agent_registry: AgentRegistry::new(),
+            terminal_manager,
         }
     }
 
@@ -115,6 +120,11 @@ impl WorkspaceRuntime {
     /// Get the workspace root directory.
     pub fn root_dir(&self) -> &PathBuf {
         &self.root_dir
+    }
+
+    /// Get the terminal manager for this workspace.
+    pub fn terminal_manager(&self) -> Arc<TerminalManager> {
+        self.terminal_manager.clone()
     }
 }
 

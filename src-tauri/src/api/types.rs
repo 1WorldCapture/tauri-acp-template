@@ -18,6 +18,9 @@ pub type AgentId = String;
 /// Unique identifier for an ACP session (UUID v4 string)
 pub type SessionId = String;
 
+/// Unique identifier for a terminal run (UUID v4 string)
+pub type TerminalId = String;
+
 /// Summary of a workspace returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -94,7 +97,9 @@ pub enum PermissionSource {
         plugin_id: String,
         version: Option<String>,
     },
-    // Future: TerminalRun, FsRead, FsWrite (US-08/10/11)
+    /// Agent-requested terminal execution
+    TerminalRun { command: String },
+    // Future: FsRead, FsWrite (US-10/11)
 }
 
 /// Origin context for a permission request (optional scoping)
@@ -127,6 +132,50 @@ pub struct AcpPermissionRequestedEvent {
     pub requested_at_ms: f64,
     /// Optional origin context
     pub origin: Option<PermissionOrigin>,
+}
+
+/// Stream identifier for terminal output
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalStream {
+    Stdout,
+    Stderr,
+}
+
+/// Event payload: terminal output chunk (terminal/output)
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalOutputEvent {
+    /// Workspace this terminal belongs to
+    pub workspace_id: WorkspaceId,
+    /// Agent that initiated the terminal run
+    pub agent_id: AgentId,
+    /// Operation identifier for linking to permission/tool call
+    pub operation_id: Option<OperationId>,
+    /// Terminal identifier
+    pub terminal_id: TerminalId,
+    /// Output stream
+    pub stream: TerminalStream,
+    /// Output chunk (UTF-8)
+    pub chunk: String,
+}
+
+/// Event payload: terminal exited (terminal/exited)
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalExitedEvent {
+    /// Workspace this terminal belongs to
+    pub workspace_id: WorkspaceId,
+    /// Agent that initiated the terminal run
+    pub agent_id: AgentId,
+    /// Operation identifier for linking to permission/tool call
+    pub operation_id: Option<OperationId>,
+    /// Terminal identifier
+    pub terminal_id: TerminalId,
+    /// Exit code (None if unavailable)
+    pub exit_code: Option<i32>,
+    /// Whether the user explicitly stopped the process
+    pub user_stopped: bool,
 }
 
 /// Event payload: plugin status changed (acp/plugin_status_changed)
