@@ -305,35 +305,31 @@ export type ApiError =
 /**
  * Invalid input parameter
  */
-{ type: "InvalidInput"; message: string } | 
+{ type: "invalidInput"; message: string } | 
 /**
  * Path does not exist or is not accessible
  */
-{ type: "PathNotFound"; path: string } | 
+{ type: "pathNotFound"; path: string } | 
 /**
  * Path is not a directory
  */
-{ type: "PathNotDirectory"; path: string } | 
+{ type: "pathNotDirectory"; path: string } | 
 /**
  * IO error during file system operation
  */
-{ type: "IoError"; message: string } | 
+{ type: "ioError"; message: string } | 
 /**
  * Workspace not found by ID
  */
-{ type: "WorkspaceNotFound"; workspace_id: string } | 
+{ type: "workspaceNotFound"; workspaceId: string } | 
 /**
- * Operation not found by ID (e.g., permission already resolved or expired)
+ * Operation not found by ID (e.g., permission already resolved, expired, or never existed)
  */
-{ type: "OperationNotFound"; operation_id: string } | 
-/**
- * Operation was already resolved (duplicate response attempt)
- */
-{ type: "OperationAlreadyResolved"; operation_id: string } | 
+{ type: "operationNotFound"; operationId: string } | 
 /**
  * Plugin installation is already in progress
  */
-{ type: "PluginInstallInProgress"; plugin_id: string }
+{ type: "pluginInstallInProgress"; pluginId: string }
 /**
  * Application preferences that persist to disk.
  * Only contains settings that should be saved between sessions.

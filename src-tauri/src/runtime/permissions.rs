@@ -14,10 +14,14 @@
 //! 6. Background task receives decision and proceeds accordingly
 
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{oneshot, Mutex};
+use tokio::time::timeout;
+
+/// Default timeout for permission requests (5 minutes)
+const PERMISSION_TIMEOUT: Duration = Duration::from_secs(300);
 
 use crate::api::types::{
     AcpPermissionRequestedEvent, ApiError, OperationId, PermissionDecision, PermissionOrigin,
@@ -112,19 +116,30 @@ impl PermissionHub {
 
         log::debug!("Permission requested: operation_id={operation_id}");
 
-        // Await the decision
-        match rx.await {
-            Ok(decision) => {
+        // Await the decision with timeout to prevent indefinite hangs
+        match timeout(PERMISSION_TIMEOUT, rx).await {
+            Ok(Ok(decision)) => {
                 log::debug!("Permission decision received: operation_id={operation_id}, decision={decision:?}");
                 Ok(decision)
             }
-            Err(_) => {
+            Ok(Err(_)) => {
                 // Channel was dropped without sending - this shouldn't happen in normal flow
                 log::warn!(
                     "Permission channel dropped without response: operation_id={operation_id}"
                 );
                 Err(ApiError::IoError {
                     message: "Permission request was cancelled".to_string(),
+                })
+            }
+            Err(_) => {
+                // Timeout - clean up pending entry and report error
+                {
+                    let mut pending = self.pending.lock().await;
+                    pending.remove(&operation_id);
+                }
+                log::warn!("Permission request timed out: operation_id={operation_id}");
+                Err(ApiError::IoError {
+                    message: "Permission request timed out".to_string(),
                 })
             }
         }
@@ -157,11 +172,12 @@ impl PermissionHub {
         match pending_op {
             Some(pending) => {
                 // Send the decision - if this fails, the receiver was already dropped
+                // (e.g., request timed out or was cancelled)
                 if pending.tx.send(decision).is_err() {
                     log::warn!(
                         "Failed to send permission decision (receiver dropped): operation_id={operation_id}"
                     );
-                    return Err(ApiError::OperationAlreadyResolved { operation_id });
+                    return Err(ApiError::OperationNotFound { operation_id });
                 }
                 log::info!(
                     "Permission responded: operation_id={operation_id}, decision={decision:?}"
@@ -169,6 +185,7 @@ impl PermissionHub {
                 Ok(())
             }
             None => {
+                // Operation not found: either never existed, already resolved, or timed out
                 log::warn!("Permission respond for unknown operation: operation_id={operation_id}");
                 Err(ApiError::OperationNotFound { operation_id })
             }
@@ -176,26 +193,6 @@ impl PermissionHub {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Note: Testing request() requires a real AppHandle which is difficult to mock.
-    // We test the respond() logic with the pending map directly.
-
-    #[tokio::test]
-    async fn test_respond_operation_not_found() {
-        // Create a mock app handle - we can't easily test this without a full Tauri app
-        // For now, we test the error case logic by checking the error type
-        let operation_id = "test-operation-123".to_string();
-
-        // The operation doesn't exist, so we expect OperationNotFound
-        // We can't actually test this without an AppHandle, but the logic is straightforward
-        assert!(matches!(
-            ApiError::OperationNotFound {
-                operation_id: operation_id.clone()
-            },
-            ApiError::OperationNotFound { .. }
-        ));
-    }
-}
+// Note: Testing PermissionHub requires a real AppHandle for event emission.
+// Unit testing this module would require refactoring to inject the event emitter
+// behind a trait. For now, integration tests should cover the permission flow.

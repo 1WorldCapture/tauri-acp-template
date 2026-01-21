@@ -123,7 +123,7 @@ pub struct AcpPluginStatusChangedEvent {
 
 /// API errors for frontend consumption
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(tag = "type")]
+#[serde(rename_all = "camelCase", tag = "type")]
 pub enum ApiError {
     /// Invalid input parameter
     InvalidInput { message: String },
@@ -134,13 +134,20 @@ pub enum ApiError {
     /// IO error during file system operation
     IoError { message: String },
     /// Workspace not found by ID
-    WorkspaceNotFound { workspace_id: WorkspaceId },
-    /// Operation not found by ID (e.g., permission already resolved or expired)
-    OperationNotFound { operation_id: OperationId },
-    /// Operation was already resolved (duplicate response attempt)
-    OperationAlreadyResolved { operation_id: OperationId },
+    WorkspaceNotFound {
+        #[serde(rename = "workspaceId")]
+        workspace_id: WorkspaceId,
+    },
+    /// Operation not found by ID (e.g., permission already resolved, expired, or never existed)
+    OperationNotFound {
+        #[serde(rename = "operationId")]
+        operation_id: OperationId,
+    },
     /// Plugin installation is already in progress
-    PluginInstallInProgress { plugin_id: String },
+    PluginInstallInProgress {
+        #[serde(rename = "pluginId")]
+        plugin_id: String,
+    },
 }
 
 impl std::fmt::Display for ApiError {
@@ -155,9 +162,6 @@ impl std::fmt::Display for ApiError {
             }
             ApiError::OperationNotFound { operation_id } => {
                 write!(f, "Operation not found: {operation_id}")
-            }
-            ApiError::OperationAlreadyResolved { operation_id } => {
-                write!(f, "Operation already resolved: {operation_id}")
             }
             ApiError::PluginInstallInProgress { plugin_id } => {
                 write!(f, "Plugin installation already in progress: {plugin_id}")

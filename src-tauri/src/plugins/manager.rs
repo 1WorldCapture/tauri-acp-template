@@ -172,11 +172,30 @@ impl PluginManager {
             if metadata_path.exists() {
                 // Read metadata file - use spawn_blocking to avoid blocking async runtime
                 let metadata_path_clone = metadata_path.clone();
+                let plugin_id_clone = plugin_id.clone();
                 let metadata: Option<PluginInstallMetadata> =
                     tokio::task::spawn_blocking(move || {
-                        std::fs::read_to_string(&metadata_path_clone)
-                            .ok()
-                            .and_then(|content| serde_json::from_str(&content).ok())
+                        match std::fs::read_to_string(&metadata_path_clone) {
+                            Ok(content) => match serde_json::from_str(&content) {
+                                Ok(metadata) => Some(metadata),
+                                Err(e) => {
+                                    log::warn!(
+                                        "Failed to parse install.json for plugin '{}': {}",
+                                        plugin_id_clone,
+                                        e
+                                    );
+                                    None
+                                }
+                            },
+                            Err(e) => {
+                                log::warn!(
+                                    "Failed to read install.json for plugin '{}': {}",
+                                    plugin_id_clone,
+                                    e
+                                );
+                                None
+                            }
+                        }
                     })
                     .await
                     .ok()
