@@ -201,6 +201,36 @@ async workspaceGetFocus() : Promise<Result<string | null, ApiError>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Get the installation and update status of a plugin.
+ * 
+ * # Arguments
+ * 
+ * * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+ * * `check_updates` - Whether to check for available updates
+ * 
+ * # Returns
+ * 
+ * Returns `PluginStatus` with:
+ * - `installed`: Whether the plugin is installed locally
+ * - `installedVersion`: Version string if installed and metadata available
+ * - `latestVersion`: Latest available version (if `check_updates=true` and implemented)
+ * - `updateAvailable`: Whether an update is available (if `check_updates=true` and implemented)
+ * - `binPath`: Path to the plugin binary if installed
+ * 
+ * # Errors
+ * 
+ * Returns `ApiError::InvalidInput` if the plugin ID is invalid.
+ * Returns `ApiError::IoError` if there's a filesystem error.
+ */
+async pluginGetStatus(pluginId: string, checkUpdates: boolean) : Promise<Result<PluginStatus, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plugin_get_status", { pluginId, checkUpdates }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -258,6 +288,34 @@ quick_pane_shortcut: string | null;
  */
 language: string | null }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
+/**
+ * Plugin installation and update status returned to the frontend
+ */
+export type PluginStatus = { 
+/**
+ * Plugin identifier (e.g., "claude-code", "codex", "gemini")
+ */
+pluginId: string; 
+/**
+ * Whether the plugin is installed in the local cache
+ */
+installed: boolean; 
+/**
+ * Installed version string (if installed and version info available)
+ */
+installedVersion: string | null; 
+/**
+ * Latest available version (if update check was requested and succeeded)
+ */
+latestVersion: string | null; 
+/**
+ * Whether an update is available (if update check was requested)
+ */
+updateAvailable: boolean | null; 
+/**
+ * Path to the plugin binary/entry point (if installed)
+ */
+binPath: string | null }
 /**
  * Error types for recovery operations (typed for frontend matching)
  */

@@ -128,12 +128,14 @@ mod tests {
         let temp_dir = std::env::temp_dir();
 
         // Create a workspace first
-        let summary = workspace_create_inner(&workspace_manager, temp_dir.to_str().unwrap().to_string())
-            .await
-            .unwrap();
+        let summary =
+            workspace_create_inner(&workspace_manager, temp_dir.to_str().unwrap().to_string())
+                .await
+                .unwrap();
 
         // Set focus
-        let result = workspace_set_focus_inner(&workspace_manager, summary.workspace_id.clone()).await;
+        let result =
+            workspace_set_focus_inner(&workspace_manager, summary.workspace_id.clone()).await;
         assert!(result.is_ok());
 
         // Verify focus

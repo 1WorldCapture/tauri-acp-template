@@ -22,6 +22,24 @@ pub struct WorkspaceSummary {
     pub created_at_ms: f64,
 }
 
+/// Plugin installation and update status returned to the frontend
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginStatus {
+    /// Plugin identifier (e.g., "claude-code", "codex", "gemini")
+    pub plugin_id: String,
+    /// Whether the plugin is installed in the local cache
+    pub installed: bool,
+    /// Installed version string (if installed and version info available)
+    pub installed_version: Option<String>,
+    /// Latest available version (if update check was requested and succeeded)
+    pub latest_version: Option<String>,
+    /// Whether an update is available (if update check was requested)
+    pub update_available: Option<bool>,
+    /// Path to the plugin binary/entry point (if installed)
+    pub bin_path: Option<String>,
+}
+
 /// API errors for frontend consumption
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type")]

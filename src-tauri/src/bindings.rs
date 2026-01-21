@@ -1,7 +1,7 @@
 use tauri_specta::{collect_commands, Builder};
 
 pub fn generate_bindings() -> Builder<tauri::Wry> {
-    use crate::commands::{notifications, preferences, quick_pane, recovery, workspaces};
+    use crate::commands::{notifications, plugins, preferences, quick_pane, recovery, workspaces};
 
     Builder::<tauri::Wry>::new().commands(collect_commands![
         preferences::greet,
@@ -19,6 +19,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
         workspaces::workspace_create,
         workspaces::workspace_set_focus,
         workspaces::workspace_get_focus,
+        plugins::plugin_get_status,
     ])
 }
 

@@ -199,7 +199,9 @@ mod tests {
     async fn test_set_focus_unknown_workspace() {
         let manager = WorkspaceManager::new();
 
-        let result = manager.set_focus("nonexistent-workspace-id".to_string()).await;
+        let result = manager
+            .set_focus("nonexistent-workspace-id".to_string())
+            .await;
 
         assert!(matches!(
             result,
@@ -232,11 +234,17 @@ mod tests {
             .unwrap();
 
         // Set focus to A
-        manager.set_focus(summary_a.workspace_id.clone()).await.unwrap();
+        manager
+            .set_focus(summary_a.workspace_id.clone())
+            .await
+            .unwrap();
         assert_eq!(manager.get_focus().await, Some(summary_a.workspace_id));
 
         // Switch focus to B
-        manager.set_focus(summary_b.workspace_id.clone()).await.unwrap();
+        manager
+            .set_focus(summary_b.workspace_id.clone())
+            .await
+            .unwrap();
         assert_eq!(manager.get_focus().await, Some(summary_b.workspace_id));
     }
 }

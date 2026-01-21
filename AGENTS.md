@@ -3,6 +3,7 @@
 ## Overview
 
 This repository is a Tauri v2 + React + Rust desktop application template with:
+
 - **ACP Integration**: Agent Client Protocol for AI agent connectivity
 - **Multi-Theme System**: 6 pre-built color themes with dark/light mode support
 - **Type-Safe IPC**: Rust-to-TypeScript bindings via tauri-specta
@@ -127,12 +128,12 @@ The Rust backend uses a three-layer architecture to separate concerns:
 
 ### Key Concepts
 
-| Concept | Description |
-|---------|-------------|
+| Concept       | Description                           |
+| ------------- | ------------------------------------- |
 | `workspaceId` | Workspace isolation identifier (UUID) |
-| `operationId` | Atomic operation tracking (UUID) |
-| `agentId` | Agent instance within workspace |
-| `sessionId` | ACP session identifier |
+| `operationId` | Atomic operation tracking (UUID)      |
+| `agentId`     | Agent instance within workspace       |
+| `sessionId`   | ACP session identifier                |
 
 ### Permission System
 
@@ -144,14 +145,14 @@ Every capability operation (terminal execution, file read/write, adapter install
 
 6 pre-built color themes using CSS custom properties and OKLCH color space:
 
-| Theme | Class |
-|-------|-------|
-| Default | (none) |
-| Claude | `theme-claude` |
-| Perplexity | `theme-perplexity` |
-| Cosmic Night | `theme-cosmic-night` |
+| Theme          | Class                  |
+| -------------- | ---------------------- |
+| Default        | (none)                 |
+| Claude         | `theme-claude`         |
+| Perplexity     | `theme-perplexity`     |
+| Cosmic Night   | `theme-cosmic-night`   |
 | Modern Minimal | `theme-modern-minimal` |
-| Ocean Breeze | `theme-ocean-breeze` |
+| Ocean Breeze   | `theme-ocean-breeze`   |
 
 - **Configuration**: `src/lib/theme-config.ts`
 - **Theme CSS**: `src/themes/*.css`

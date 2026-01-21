@@ -7,6 +7,7 @@
 mod api;
 mod bindings;
 mod commands;
+mod plugins;
 mod runtime;
 mod types;
 mod utils;
@@ -104,6 +105,9 @@ pub fn run() {
 
             // Initialize workspace manager for ACP support
             app.manage(runtime::workspace_manager::WorkspaceManager::new());
+
+            // Initialize plugin manager for plugin installation status
+            app.manage(plugins::manager::PluginManager::new(app.handle().clone()));
 
             // Set up global shortcut plugin (without any shortcuts - we register them separately)
             #[cfg(desktop)]
