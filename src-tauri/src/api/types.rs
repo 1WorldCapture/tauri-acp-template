@@ -145,6 +145,61 @@ pub struct AcpPluginStatusChangedEvent {
 // Agent Runtime Types (US-06+)
 // ============================================================================
 
+/// Event payload: session update (acp/session_update)
+///
+/// US-07: Emitted when the ACP adapter sends session updates (message chunks,
+/// tool calls, plans, etc.). The frontend subscribes to this event to display
+/// streaming responses.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSessionUpdateEvent {
+    /// Workspace this agent belongs to
+    pub workspace_id: WorkspaceId,
+    /// Agent identifier
+    pub agent_id: AgentId,
+    /// Session identifier
+    pub session_id: SessionId,
+    /// The update payload
+    pub update: AcpSessionUpdate,
+}
+
+/// ACP session update types
+///
+/// US-07: Represents different types of updates that can be received from
+/// an ACP adapter during a session. Uses `serde_json::Value` for payload
+/// flexibility (can be strongly typed later without breaking the contract).
+///
+/// Variants are inspired by Zed's SessionUpdate enum but kept flexible
+/// for compatibility with various ACP adapters.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum AcpSessionUpdate {
+    /// User message content chunk
+    UserMessageChunk { content: serde_json::Value },
+    /// Agent message content chunk
+    AgentMessageChunk { content: serde_json::Value },
+    /// Agent thought/reasoning chunk
+    AgentThoughtChunk { content: serde_json::Value },
+    /// Tool call initiated
+    ToolCall { data: serde_json::Value },
+    /// Tool call progress update
+    ToolCallUpdate { data: serde_json::Value },
+    /// Implementation plan
+    Plan { data: serde_json::Value },
+    /// Available commands update
+    AvailableCommandsUpdate { data: serde_json::Value },
+    /// Current mode update
+    CurrentModeUpdate { data: serde_json::Value },
+    /// Configuration option update
+    ConfigOptionUpdate { data: serde_json::Value },
+    /// Raw/unknown update (fallback for unrecognized formats)
+    Raw { json: serde_json::Value },
+}
+
+// ============================================================================
+// Agent Runtime Types (US-06+) - continued
+// ============================================================================
+
 /// Acknowledgment returned when a prompt is sent
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -256,6 +311,65 @@ impl std::fmt::Display for ApiError {
             ApiError::ProtocolError { message } => {
                 write!(f, "Protocol error: {message}")
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_acp_session_update_deserialize_agent_message_chunk() {
+        let json = serde_json::json!({
+            "type": "agentMessageChunk",
+            "content": {"text": "Hello"}
+        });
+
+        let result: Result<AcpSessionUpdate, _> = serde_json::from_value(json);
+        assert!(result.is_ok());
+        matches!(result.unwrap(), AcpSessionUpdate::AgentMessageChunk { .. });
+    }
+
+    #[test]
+    fn test_acp_session_update_deserialize_tool_call() {
+        let json = serde_json::json!({
+            "type": "toolCall",
+            "data": {"id": "call-123", "name": "bash"}
+        });
+
+        let result: Result<AcpSessionUpdate, _> = serde_json::from_value(json);
+        assert!(result.is_ok());
+        matches!(result.unwrap(), AcpSessionUpdate::ToolCall { .. });
+    }
+
+    #[test]
+    fn test_acp_session_update_deserialize_raw_fallback() {
+        // Unknown type should deserialize as Raw
+        let json = serde_json::json!({
+            "type": "unknownType",
+            "someField": "someValue"
+        });
+
+        let result: Result<AcpSessionUpdate, _> = serde_json::from_value(json.clone());
+        // This will fail because unknownType is not a valid variant
+        // The protocol layer wraps it as Raw manually when deserialization fails
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_acp_session_update_raw_variant() {
+        let json = serde_json::json!({
+            "type": "raw",
+            "json": {"custom": "data"}
+        });
+
+        let result: Result<AcpSessionUpdate, _> = serde_json::from_value(json);
+        assert!(result.is_ok());
+        if let AcpSessionUpdate::Raw { json } = result.unwrap() {
+            assert_eq!(json.get("custom").and_then(|v| v.as_str()), Some("data"));
+        } else {
+            panic!("Expected Raw variant");
         }
     }
 }

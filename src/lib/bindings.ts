@@ -315,19 +315,20 @@ async agentCreate(workspaceId: string, pluginId: string, displayName: string | n
  * US-06: This command triggers agent lazy startup on first call.
  * The agent is started (spawn/initialize/new_session) and session ID is returned.
  * 
- * Note: The `prompt` parameter is accepted but not used in US-06.
- * Actual prompt sending will be implemented in US-07.
+ * US-07: Sends the user's prompt to the agent via JSON-RPC over stdin.
+ * Streaming responses arrive asynchronously via `acp/session_update` events.
  * 
  * # Arguments
  * * `workspace_id` - ID of the workspace containing the agent
  * * `agent_id` - ID of the agent to send the prompt to
- * * `prompt` - The user's prompt text (reserved for US-07)
+ * * `prompt` - The user's prompt text
  * 
  * # Returns
  * * `SendPromptAck` - Contains the session ID for tracking responses
  * 
  * # Events Emitted
  * * `agent/status_changed` - When agent starts (Starting → Running) or errors
+ * * `acp/session_update` - Streaming session updates from the agent
  * 
  * # Errors
  * * `ApiError::WorkspaceNotFound` - If workspace doesn't exist
@@ -335,6 +336,7 @@ async agentCreate(workspaceId: string, pluginId: string, displayName: string | n
  * * `ApiError::PluginNotInstalled` - If the agent's plugin is not installed
  * * `ApiError::PluginMissingBinPath` - If plugin has no binary path
  * * `ApiError::ProtocolError` - If ACP communication fails
+ * * `ApiError::IoError` - If writing to stdin fails
  */
 async chatSendPrompt(workspaceId: string, agentId: string, prompt: string) : Promise<Result<SendPromptAck, ApiError>> {
     try {

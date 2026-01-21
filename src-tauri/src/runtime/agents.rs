@@ -237,6 +237,42 @@ impl AgentRuntime {
 
         Ok(session_id)
     }
+
+    /// Send a prompt to the running agent.
+    ///
+    /// US-07: Sends the user's prompt text to the agent via the protocol connection.
+    /// The agent must already be started (call ensure_started first).
+    /// Streaming responses will arrive asynchronously via AgentHost callbacks.
+    ///
+    /// # Arguments
+    /// * `prompt` - The user's prompt text
+    ///
+    /// # Returns
+    /// * `Ok(())` - Prompt sent successfully
+    /// * `Err(ApiError::ProtocolError)` - If agent is not running or connection unavailable
+    /// * `Err(ApiError::IoError)` - If writing to the protocol fails
+    pub async fn send_prompt(self: &Arc<Self>, prompt: String) -> Result<(), ApiError> {
+        // Get session_id (fail if agent not running)
+        let session_id = {
+            let session_guard = self.session_id.lock().await;
+            session_guard
+                .clone()
+                .ok_or_else(|| ApiError::ProtocolError {
+                    message: "Agent not running".to_string(),
+                })?
+        };
+
+        // Get connection (fail if connection unavailable)
+        let connection = {
+            let conn_guard = self.connection.lock().await;
+            conn_guard.clone().ok_or_else(|| ApiError::ProtocolError {
+                message: "Agent connection not available".to_string(),
+            })?
+        };
+
+        // Call the trait method to send prompt
+        connection.send_prompt(session_id, prompt).await
+    }
 }
 
 /// Registry of agent entities within a single workspace.

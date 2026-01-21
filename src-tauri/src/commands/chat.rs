@@ -1,10 +1,8 @@
 //! Chat commands for sending prompts and managing conversations.
 //!
-//! This module implements US-06 (lazy startup).
-//! The `chat_send_prompt` command triggers agent lazy startup on first call.
-//!
-//! Note: US-06 only performs lazy startup and returns sessionId.
-//! Actual prompt sending will be implemented in US-07.
+//! This module implements US-06 (lazy startup) and US-07 (prompt sending).
+//! The `chat_send_prompt` command triggers agent lazy startup on first call
+//! and sends the user's prompt to the agent.
 
 use std::sync::Arc;
 
@@ -21,7 +19,7 @@ async fn chat_send_prompt_inner(
     plugin_manager: Arc<PluginManager>,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
-    _prompt: String, // US-07 will use this parameter
+    prompt: String,
 ) -> Result<SendPromptAck, ApiError> {
     log::info!("chat_send_prompt: workspace={workspace_id}, agent={agent_id}");
 
@@ -33,13 +31,16 @@ async fn chat_send_prompt_inner(
     let agent_runtime = workspace.ensure_agent_runtime(agent_id.clone()).await?;
 
     // Ensure agent is started (lazy startup on first prompt)
-    // US-06: Only start the agent and return sessionId
-    // US-07: Will add actual prompt sending
     let session_id = agent_runtime
         .ensure_started(app, workspace_root, plugin_manager)
         .await?;
 
     log::info!("Agent started: workspace={workspace_id}, agent={agent_id}, session={session_id}");
+
+    // US-07: Send the prompt to the agent
+    agent_runtime.send_prompt(prompt).await?;
+
+    log::debug!("Prompt sent: workspace={workspace_id}, agent={agent_id}, session={session_id}");
 
     Ok(SendPromptAck { session_id })
 }
@@ -49,19 +50,20 @@ async fn chat_send_prompt_inner(
 /// US-06: This command triggers agent lazy startup on first call.
 /// The agent is started (spawn/initialize/new_session) and session ID is returned.
 ///
-/// Note: The `prompt` parameter is accepted but not used in US-06.
-/// Actual prompt sending will be implemented in US-07.
+/// US-07: Sends the user's prompt to the agent via JSON-RPC over stdin.
+/// Streaming responses arrive asynchronously via `acp/session_update` events.
 ///
 /// # Arguments
 /// * `workspace_id` - ID of the workspace containing the agent
 /// * `agent_id` - ID of the agent to send the prompt to
-/// * `prompt` - The user's prompt text (reserved for US-07)
+/// * `prompt` - The user's prompt text
 ///
 /// # Returns
 /// * `SendPromptAck` - Contains the session ID for tracking responses
 ///
 /// # Events Emitted
 /// * `agent/status_changed` - When agent starts (Starting → Running) or errors
+/// * `acp/session_update` - Streaming session updates from the agent
 ///
 /// # Errors
 /// * `ApiError::WorkspaceNotFound` - If workspace doesn't exist
@@ -69,6 +71,7 @@ async fn chat_send_prompt_inner(
 /// * `ApiError::PluginNotInstalled` - If the agent's plugin is not installed
 /// * `ApiError::PluginMissingBinPath` - If plugin has no binary path
 /// * `ApiError::ProtocolError` - If ACP communication fails
+/// * `ApiError::IoError` - If writing to stdin fails
 #[tauri::command]
 #[specta::specta]
 pub async fn chat_send_prompt(

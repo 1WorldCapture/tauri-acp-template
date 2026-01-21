@@ -11,8 +11,17 @@ use std::sync::Arc;
 
 use tauri::Emitter;
 
-use crate::api::types::{AgentId, AgentRuntimeStatus, AgentStatusChangedEvent, WorkspaceId};
+use crate::api::types::{
+    AcpSessionUpdate, AcpSessionUpdateEvent, AgentId, AgentRuntimeStatus, AgentStatusChangedEvent,
+    SessionId, WorkspaceId,
+};
 use crate::protocols::host::AgentHost;
+
+/// Event name for agent status changes
+pub const EVENT_AGENT_STATUS_CHANGED: &str = "agent/status_changed";
+
+/// Event name for ACP session updates (US-07)
+pub const EVENT_ACP_SESSION_UPDATE: &str = "acp/session_update";
 
 /// Runtime implementation of AgentHost trait.
 ///
@@ -54,7 +63,7 @@ impl AgentHost for RuntimeAgentHost {
             status,
         };
 
-        if let Err(e) = self.app.emit("agent/status_changed", &event) {
+        if let Err(e) = self.app.emit(EVENT_AGENT_STATUS_CHANGED, &event) {
             log::error!(
                 "Failed to emit agent/status_changed event: {} (workspace={}, agent={})",
                 e,
@@ -68,5 +77,42 @@ impl AgentHost for RuntimeAgentHost {
                 self.agent_id
             );
         }
+    }
+
+    fn on_session_update(&self, session_id: SessionId, update: AcpSessionUpdate) {
+        let event = AcpSessionUpdateEvent {
+            workspace_id: self.workspace_id.clone(),
+            agent_id: self.agent_id.clone(),
+            session_id,
+            update,
+        };
+
+        if let Err(e) = self.app.emit(EVENT_ACP_SESSION_UPDATE, &event) {
+            log::error!(
+                "Failed to emit acp/session_update event: {} (workspace={}, agent={})",
+                e,
+                self.workspace_id,
+                self.agent_id
+            );
+        } else {
+            log::trace!(
+                "Emitted acp/session_update: workspace={}, agent={}",
+                self.workspace_id,
+                self.agent_id
+            );
+        }
+    }
+
+    fn on_connection_lost(&self) {
+        log::warn!(
+            "Agent connection lost: workspace={}, agent={}",
+            self.workspace_id,
+            self.agent_id
+        );
+
+        // Emit Stopped status to notify frontend
+        // Note: AgentRuntime state (connection, session_id) is not automatically cleared
+        // to avoid circular references. It will be detected on next operation attempt.
+        self.set_status(AgentRuntimeStatus::Stopped);
     }
 }
