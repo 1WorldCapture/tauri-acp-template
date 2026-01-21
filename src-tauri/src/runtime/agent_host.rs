@@ -19,7 +19,7 @@ use crate::api::types::{
 };
 use crate::protocols::host::{AgentHost, PermissionRequest, TerminalRunRequest, TerminalRunResult};
 use crate::runtime::permissions::PermissionHub;
-use crate::runtime::terminal::{TerminalManager, TerminalRunHandle};
+use crate::runtime::terminal::{TerminalExit, TerminalManager, TerminalRunHandle};
 
 /// Event name for agent status changes
 pub const EVENT_AGENT_STATUS_CHANGED: &str = "agent/status_changed";
@@ -187,6 +187,7 @@ impl AgentHost for RuntimeAgentHost {
         let mut stderr_closed = false;
         let mut exit_received = false;
         let mut exit_code: Option<i32> = None;
+        let mut user_stopped = false;
 
         while !(stdout_closed && stderr_closed && exit_received) {
             tokio::select! {
@@ -238,7 +239,16 @@ impl AgentHost for RuntimeAgentHost {
                 }
                 exit = &mut exit_rx, if !exit_received => {
                     exit_received = true;
-                    exit_code = exit.ok().flatten();
+                    match exit {
+                        Ok(TerminalExit { exit_code: code, user_stopped: stopped }) => {
+                            exit_code = code;
+                            user_stopped = stopped;
+                        }
+                        Err(_) => {
+                            exit_code = None;
+                            user_stopped = false;
+                        }
+                    }
                 }
             }
         }
@@ -249,7 +259,7 @@ impl AgentHost for RuntimeAgentHost {
             operation_id: operation_id.clone(),
             terminal_id: terminal_id.clone(),
             exit_code,
-            user_stopped: false,
+            user_stopped,
         };
 
         if let Err(e) = self.app.emit(EVENT_TERMINAL_EXITED, &exited_event) {

@@ -11,4 +11,5 @@ pub mod plugins;
 pub mod preferences;
 pub mod quick_pane;
 pub mod recovery;
+pub mod terminal;
 pub mod workspaces;
