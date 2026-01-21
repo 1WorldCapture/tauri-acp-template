@@ -12,6 +12,8 @@ mod runtime;
 mod types;
 mod utils;
 
+use std::sync::Arc;
+
 use tauri::Manager;
 
 // Re-export only what's needed externally
@@ -103,11 +105,26 @@ pub fn run() {
                 app.package_info().name
             );
 
-            // Initialize workspace manager for ACP support
-            app.manage(runtime::workspace_manager::WorkspaceManager::new());
+            // Initialize workspace manager for ACP support (wrapped in Arc for background task support)
+            app.manage(Arc::new(runtime::workspace_manager::WorkspaceManager::new()));
 
-            // Initialize plugin manager for plugin installation status
-            app.manage(plugins::manager::PluginManager::new(app.handle().clone()));
+            // Initialize plugin manager for plugin installation status (wrapped in Arc for sharing)
+            let plugin_manager =
+                Arc::new(plugins::manager::PluginManager::new(app.handle().clone()));
+            app.manage(plugin_manager.clone());
+
+            // Initialize permission hub for permission request/response flow
+            let permission_hub = Arc::new(runtime::permissions::PermissionHub::new(
+                app.handle().clone(),
+            ));
+            app.manage(permission_hub.clone());
+
+            // Initialize plugin installer (needs both permission_hub and plugin_manager)
+            app.manage(Arc::new(runtime::plugin_installer::PluginInstaller::new(
+                app.handle().clone(),
+                permission_hub,
+                plugin_manager,
+            )));
 
             // Set up global shortcut plugin (without any shortcuts - we register them separately)
             #[cfg(desktop)]

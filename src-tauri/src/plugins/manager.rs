@@ -94,7 +94,10 @@ impl PluginManager {
     /// - Must be 1-64 characters
     /// - Can only contain lowercase letters, numbers, and hyphens
     /// - Cannot start or end with a hyphen
-    fn validate_plugin_id(plugin_id: &str) -> Result<(), ApiError> {
+    ///
+    /// This is public to allow other modules (e.g., PluginInstaller) to validate
+    /// plugin IDs before starting operations.
+    pub fn validate_plugin_id(plugin_id: &str) -> Result<(), ApiError> {
         if plugin_id.is_empty() {
             return Err(ApiError::InvalidInput {
                 message: "Plugin ID cannot be empty".to_string(),
@@ -209,6 +212,70 @@ impl PluginManager {
             update_available,
             bin_path,
         })
+    }
+
+    /// Install or upgrade a plugin.
+    ///
+    /// MVP implementation: Creates the plugin directory and writes metadata.
+    /// Future: Will execute actual npm install.
+    ///
+    /// # Arguments
+    ///
+    /// * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+    /// * `version` - Optional version to install (MVP: recorded in metadata only)
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success, or an error if installation fails.
+    pub async fn install(
+        &self,
+        plugin_id: String,
+        version: Option<String>,
+    ) -> Result<(), ApiError> {
+        // Validate plugin ID
+        Self::validate_plugin_id(&plugin_id)?;
+
+        let plugins_root = self.plugins_root_dir()?;
+        let plugin_dir = plugins_root.join(&plugin_id);
+
+        // Create plugin directory
+        let plugin_dir_clone = plugin_dir.clone();
+        tokio::task::spawn_blocking(move || std::fs::create_dir_all(&plugin_dir_clone))
+            .await
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to spawn blocking task: {e}"),
+            })?
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to create plugin directory: {e}"),
+            })?;
+
+        // Build metadata
+        let metadata = PluginInstallMetadata {
+            installed_version: version.clone(),
+            // MVP: No actual binary installed, just record the version
+            // Future: This would be the path to the installed binary
+            bin_path: None,
+        };
+
+        // Write install.json
+        let metadata_path = plugin_dir.join("install.json");
+        let metadata_json =
+            serde_json::to_string_pretty(&metadata).map_err(|e| ApiError::IoError {
+                message: format!("Failed to serialize plugin metadata: {e}"),
+            })?;
+
+        tokio::task::spawn_blocking(move || std::fs::write(&metadata_path, metadata_json))
+            .await
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to spawn blocking task: {e}"),
+            })?
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to write plugin metadata: {e}"),
+            })?;
+
+        log::info!("Plugin installed: plugin_id={plugin_id}, version={version:?}");
+
+        Ok(())
     }
 }
 

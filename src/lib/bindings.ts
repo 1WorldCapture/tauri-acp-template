@@ -231,6 +231,60 @@ async pluginGetStatus(pluginId: string, checkUpdates: boolean) : Promise<Result<
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Start a plugin installation operation.
+ * 
+ * This command initiates an async installation process:
+ * 1. Validates the plugin ID
+ * 2. Returns immediately with an operation ID
+ * 3. Emits `acp/permission_requested` event for user approval
+ * 4. On approval, installs the plugin and emits `acp/plugin_status_changed`
+ * 
+ * # Arguments
+ * 
+ * * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+ * * `version` - Optional version to install
+ * 
+ * # Returns
+ * 
+ * Returns `OperationStarted` with the operation ID for tracking.
+ * 
+ * # Errors
+ * 
+ * Returns `ApiError::InvalidInput` if the plugin ID is invalid.
+ * Returns `ApiError::PluginInstallInProgress` if the plugin is already being installed.
+ */
+async pluginInstall(pluginId: string, version: string | null) : Promise<Result<OperationStarted, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("plugin_install", { pluginId, version }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Respond to a pending permission request.
+ * 
+ * This command is called by the frontend when the user makes a decision
+ * about a permission request (allow or deny).
+ * 
+ * # Arguments
+ * 
+ * * `operation_id` - The operation ID from the permission request event
+ * * `decision` - The user's decision (AllowOnce or Deny)
+ * 
+ * # Returns
+ * 
+ * Ok(()) on success, or an error if the operation is not found or already resolved.
+ */
+async permissionRespond(operationId: string, decision: PermissionDecision) : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("permission_respond", { operationId, decision }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -267,7 +321,19 @@ export type ApiError =
 /**
  * Workspace not found by ID
  */
-{ type: "WorkspaceNotFound"; workspace_id: string }
+{ type: "WorkspaceNotFound"; workspace_id: string } | 
+/**
+ * Operation not found by ID (e.g., permission already resolved or expired)
+ */
+{ type: "OperationNotFound"; operation_id: string } | 
+/**
+ * Operation was already resolved (duplicate response attempt)
+ */
+{ type: "OperationAlreadyResolved"; operation_id: string } | 
+/**
+ * Plugin installation is already in progress
+ */
+{ type: "PluginInstallInProgress"; plugin_id: string }
 /**
  * Application preferences that persist to disk.
  * Only contains settings that should be saved between sessions.
@@ -288,6 +354,26 @@ quick_pane_shortcut: string | null;
  */
 language: string | null }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
+/**
+ * Response when an async operation is started
+ */
+export type OperationStarted = { 
+/**
+ * Unique operation identifier for tracking
+ */
+operationId: string }
+/**
+ * User decision for a permission request
+ */
+export type PermissionDecision = 
+/**
+ * Allow this operation once
+ */
+"allowOnce" | 
+/**
+ * Deny this operation
+ */
+"deny"
 /**
  * Plugin installation and update status returned to the frontend
  */

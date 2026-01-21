@@ -2,6 +2,8 @@
 //!
 //! Handles workspace creation, listing, and lifecycle management.
 
+use std::sync::Arc;
+
 use tauri::State;
 
 use crate::api::types::{ApiError, WorkspaceId, WorkspaceSummary};
@@ -40,10 +42,10 @@ async fn workspace_create_inner(
 #[tauri::command]
 #[specta::specta]
 pub async fn workspace_create(
-    workspace_manager: State<'_, WorkspaceManager>,
+    workspace_manager: State<'_, Arc<WorkspaceManager>>,
     root_dir: String,
 ) -> Result<WorkspaceSummary, ApiError> {
-    workspace_create_inner(workspace_manager.inner(), root_dir).await
+    workspace_create_inner(&workspace_manager, root_dir).await
 }
 
 // --- Focus commands ---
@@ -70,10 +72,10 @@ async fn workspace_set_focus_inner(
 #[tauri::command]
 #[specta::specta]
 pub async fn workspace_set_focus(
-    workspace_manager: State<'_, WorkspaceManager>,
+    workspace_manager: State<'_, Arc<WorkspaceManager>>,
     workspace_id: WorkspaceId,
 ) -> Result<(), ApiError> {
-    workspace_set_focus_inner(workspace_manager.inner(), workspace_id).await
+    workspace_set_focus_inner(&workspace_manager, workspace_id).await
 }
 
 async fn workspace_get_focus_inner(
@@ -91,9 +93,9 @@ async fn workspace_get_focus_inner(
 #[tauri::command]
 #[specta::specta]
 pub async fn workspace_get_focus(
-    workspace_manager: State<'_, WorkspaceManager>,
+    workspace_manager: State<'_, Arc<WorkspaceManager>>,
 ) -> Result<Option<WorkspaceId>, ApiError> {
-    workspace_get_focus_inner(workspace_manager.inner()).await
+    workspace_get_focus_inner(&workspace_manager).await
 }
 
 #[cfg(test)]

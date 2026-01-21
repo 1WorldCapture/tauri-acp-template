@@ -2,10 +2,13 @@
 //!
 //! These commands provide the frontend API for plugin management operations.
 
+use std::sync::Arc;
+
 use tauri::State;
 
-use crate::api::types::{ApiError, PluginStatus};
+use crate::api::types::{ApiError, OperationStarted, PluginStatus};
 use crate::plugins::manager::PluginManager;
+use crate::runtime::plugin_installer::PluginInstaller;
 
 /// Get the installation and update status of a plugin.
 ///
@@ -30,7 +33,7 @@ use crate::plugins::manager::PluginManager;
 #[tauri::command]
 #[specta::specta]
 pub async fn plugin_get_status(
-    plugin_manager: State<'_, PluginManager>,
+    plugin_manager: State<'_, Arc<PluginManager>>,
     plugin_id: String,
     check_updates: bool,
 ) -> Result<PluginStatus, ApiError> {
@@ -49,4 +52,37 @@ pub async fn plugin_get_status(
     );
 
     Ok(status)
+}
+
+/// Start a plugin installation operation.
+///
+/// This command initiates an async installation process:
+/// 1. Validates the plugin ID
+/// 2. Returns immediately with an operation ID
+/// 3. Emits `acp/permission_requested` event for user approval
+/// 4. On approval, installs the plugin and emits `acp/plugin_status_changed`
+///
+/// # Arguments
+///
+/// * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+/// * `version` - Optional version to install
+///
+/// # Returns
+///
+/// Returns `OperationStarted` with the operation ID for tracking.
+///
+/// # Errors
+///
+/// Returns `ApiError::InvalidInput` if the plugin ID is invalid.
+/// Returns `ApiError::PluginInstallInProgress` if the plugin is already being installed.
+#[tauri::command]
+#[specta::specta]
+pub async fn plugin_install(
+    plugin_installer: State<'_, Arc<PluginInstaller>>,
+    plugin_id: String,
+    version: Option<String>,
+) -> Result<OperationStarted, ApiError> {
+    log::info!("plugin_install called: plugin_id={plugin_id}, version={version:?}");
+
+    plugin_installer.start_install(plugin_id, version).await
 }

@@ -4,6 +4,7 @@
 //! Import specific commands via their submodule (e.g., `commands::preferences::greet`).
 
 pub mod notifications;
+pub mod permissions;
 pub mod plugins;
 pub mod preferences;
 pub mod quick_pane;
