@@ -1,20 +1,20 @@
 //! WorkspaceRuntime - container for a single workspace's state.
 //!
-//! Each workspace has its own runtime that will eventually hold:
+//! Each workspace has its own runtime that holds:
 //! - AgentRegistry (agents within this workspace)
-//! - TerminalManager (terminals for this workspace)
-//! - FsManager (file system operations scoped to this workspace)
+//! - Future: TerminalManager (terminals for this workspace)
+//! - Future: FsManager (file system operations scoped to this workspace)
 
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::api::types::{WorkspaceId, WorkspaceSummary};
+use crate::api::types::{AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
+use crate::runtime::agents::AgentRegistry;
 
 /// Runtime state for a single workspace.
 ///
 /// Thread-safe: This struct is designed to be wrapped in Arc<> and
 /// shared across async tasks.
-#[derive(Debug)]
 pub struct WorkspaceRuntime {
     /// Unique identifier for this workspace
     workspace_id: WorkspaceId,
@@ -22,8 +22,9 @@ pub struct WorkspaceRuntime {
     root_dir: PathBuf,
     /// Timestamp when workspace was created (milliseconds since epoch)
     created_at_ms: f64,
+    /// Registry of agent entities within this workspace
+    agent_registry: AgentRegistry,
     // Future additions for subsequent user stories:
-    // agent_registry: AgentRegistry,
     // terminal_manager: TerminalManager,
     // fs_manager: FsManager,
 }
@@ -49,6 +50,7 @@ impl WorkspaceRuntime {
             workspace_id,
             root_dir,
             created_at_ms,
+            agent_registry: AgentRegistry::new(),
         }
     }
 
@@ -59,6 +61,27 @@ impl WorkspaceRuntime {
             root_dir: self.root_dir.display().to_string(),
             created_at_ms: self.created_at_ms,
         }
+    }
+
+    /// Creates an agent entity within this workspace.
+    ///
+    /// # Arguments
+    /// * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+    /// * `display_name` - Optional display name for the agent
+    ///
+    /// # Returns
+    /// * `Ok(AgentSummary)` - Summary of the created agent
+    /// * `Err(ApiError)` - If validation fails
+    pub async fn create_agent(
+        &self,
+        plugin_id: String,
+        display_name: Option<String>,
+    ) -> Result<AgentSummary, ApiError> {
+        let record = self
+            .agent_registry
+            .create_agent(plugin_id, display_name)
+            .await?;
+        Ok(record.to_summary(&self.workspace_id))
     }
 }
 
@@ -90,5 +113,24 @@ mod tests {
         assert_eq!(summary.workspace_id, workspace_id);
         assert_eq!(summary.root_dir, root_dir.display().to_string());
         assert!(summary.created_at_ms > 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_workspace_create_agent() {
+        let workspace_id = "test-workspace-789".to_string();
+        let root_dir = env::temp_dir();
+
+        let runtime = WorkspaceRuntime::new(workspace_id.clone(), root_dir);
+
+        let result = runtime
+            .create_agent("claude-code".to_string(), Some("Test Agent".to_string()))
+            .await;
+
+        assert!(result.is_ok());
+        let summary = result.unwrap();
+        assert!(!summary.agent_id.is_empty());
+        assert_eq!(summary.workspace_id, workspace_id);
+        assert_eq!(summary.plugin_id, "claude-code");
+        assert_eq!(summary.display_name, Some("Test Agent".to_string()));
     }
 }

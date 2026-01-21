@@ -3,6 +3,7 @@
 //! The runtime domain handles product-level concepts like
 //! Workspace, Agent, Operation, and Permission.
 
+pub mod agents;
 pub mod path;
 pub mod permissions;
 pub mod plugin_installer;

@@ -12,6 +12,9 @@ pub type WorkspaceId = String;
 /// Unique identifier for an operation (UUID v4 string)
 pub type OperationId = String;
 
+/// Unique identifier for an agent (UUID v4 string)
+pub type AgentId = String;
+
 /// Summary of a workspace returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +26,20 @@ pub struct WorkspaceSummary {
     /// Timestamp when workspace was created (milliseconds since epoch)
     /// Using f64 for JavaScript number compatibility
     pub created_at_ms: f64,
+}
+
+/// Summary of an agent returned to the frontend
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSummary {
+    /// Unique agent identifier
+    pub agent_id: AgentId,
+    /// Workspace this agent belongs to
+    pub workspace_id: WorkspaceId,
+    /// Plugin identifier (e.g., "claude-code", "codex", "gemini")
+    pub plugin_id: String,
+    /// Optional display name for the agent
+    pub display_name: Option<String>,
 }
 
 /// Plugin installation and update status returned to the frontend
@@ -138,6 +155,11 @@ pub enum ApiError {
         #[serde(rename = "workspaceId")]
         workspace_id: WorkspaceId,
     },
+    /// Agent not found by ID
+    AgentNotFound {
+        #[serde(rename = "agentId")]
+        agent_id: AgentId,
+    },
     /// Operation not found by ID (e.g., permission already resolved, expired, or never existed)
     OperationNotFound {
         #[serde(rename = "operationId")]
@@ -159,6 +181,9 @@ impl std::fmt::Display for ApiError {
             ApiError::IoError { message } => write!(f, "IO error: {message}"),
             ApiError::WorkspaceNotFound { workspace_id } => {
                 write!(f, "Workspace not found: {workspace_id}")
+            }
+            ApiError::AgentNotFound { agent_id } => {
+                write!(f, "Agent not found: {agent_id}")
             }
             ApiError::OperationNotFound { operation_id } => {
                 write!(f, "Operation not found: {operation_id}")

@@ -285,6 +285,29 @@ async permissionRespond(operationId: string, decision: PermissionDecision) : Pro
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Creates a new agent entity within a workspace.
+ * 
+ * # Arguments
+ * * `workspace_id` - ID of the workspace to create the agent in
+ * * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+ * * `display_name` - Optional display name for the agent
+ * 
+ * # Returns
+ * * `AgentSummary` - Summary of the created agent including ID
+ * 
+ * # Errors
+ * * `ApiError::WorkspaceNotFound` - If the workspace does not exist
+ * * `ApiError::InvalidInput` - If plugin_id or display_name is invalid
+ */
+async agentCreate(workspaceId: string, pluginId: string, displayName: string | null) : Promise<Result<AgentSummary, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("agent_create", { workspaceId, pluginId, displayName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -298,6 +321,26 @@ async permissionRespond(operationId: string, decision: PermissionDecision) : Pro
 
 /** user-defined types **/
 
+/**
+ * Summary of an agent returned to the frontend
+ */
+export type AgentSummary = { 
+/**
+ * Unique agent identifier
+ */
+agentId: string; 
+/**
+ * Workspace this agent belongs to
+ */
+workspaceId: string; 
+/**
+ * Plugin identifier (e.g., "claude-code", "codex", "gemini")
+ */
+pluginId: string; 
+/**
+ * Optional display name for the agent
+ */
+displayName: string | null }
 /**
  * API errors for frontend consumption
  */
@@ -322,6 +365,10 @@ export type ApiError =
  * Workspace not found by ID
  */
 { type: "workspaceNotFound"; workspaceId: string } | 
+/**
+ * Agent not found by ID
+ */
+{ type: "agentNotFound"; agentId: string } | 
 /**
  * Operation not found by ID (e.g., permission already resolved, expired, or never existed)
  */

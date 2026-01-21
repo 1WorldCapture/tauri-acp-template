@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::api::types::{ApiError, WorkspaceId, WorkspaceSummary};
+use crate::api::types::{AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
 use crate::runtime::path::canonicalize_workspace_root;
 use crate::runtime::workspace::WorkspaceRuntime;
 
@@ -121,6 +121,51 @@ impl WorkspaceManager {
     pub async fn get_focus(&self) -> Option<WorkspaceId> {
         let focused = self.focused_workspace_id.lock().await;
         focused.clone()
+    }
+
+    /// Gets a workspace runtime by ID.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - ID of the workspace to get
+    ///
+    /// # Returns
+    /// * `Ok(Arc<WorkspaceRuntime>)` - The workspace runtime
+    /// * `Err(ApiError::WorkspaceNotFound)` - If the workspace does not exist
+    pub async fn get_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Arc<WorkspaceRuntime>, ApiError> {
+        let workspaces = self.workspaces.lock().await;
+        workspaces
+            .get(workspace_id)
+            .cloned()
+            .ok_or_else(|| ApiError::WorkspaceNotFound {
+                workspace_id: workspace_id.clone(),
+            })
+    }
+
+    /// Creates an agent entity within a workspace.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - ID of the workspace to create the agent in
+    /// * `plugin_id` - Plugin identifier (e.g., "claude-code", "codex", "gemini")
+    /// * `display_name` - Optional display name for the agent
+    ///
+    /// # Returns
+    /// * `Ok(AgentSummary)` - Summary of the created agent
+    /// * `Err(ApiError::WorkspaceNotFound)` - If the workspace does not exist
+    /// * `Err(ApiError::InvalidInput)` - If validation fails
+    pub async fn create_agent(
+        &self,
+        workspace_id: WorkspaceId,
+        plugin_id: String,
+        display_name: Option<String>,
+    ) -> Result<AgentSummary, ApiError> {
+        // Get workspace runtime (releases lock after clone)
+        let workspace = self.get_workspace(&workspace_id).await?;
+
+        // Delegate to workspace runtime
+        workspace.create_agent(plugin_id, display_name).await
     }
 }
 
@@ -246,5 +291,79 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(manager.get_focus().await, Some(summary_b.workspace_id));
+    }
+
+    #[tokio::test]
+    async fn test_get_workspace_found() {
+        let manager = WorkspaceManager::new();
+        let temp_dir = env::temp_dir();
+
+        let summary = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let result = manager.get_workspace(&summary.workspace_id).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_workspace_not_found() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager
+            .get_workspace(&"nonexistent-workspace-id".to_string())
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ApiError::WorkspaceNotFound { workspace_id }) if workspace_id == "nonexistent-workspace-id"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent() {
+        let manager = WorkspaceManager::new();
+        let temp_dir = env::temp_dir();
+
+        // Create a workspace first
+        let ws_summary = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Create an agent in the workspace
+        let result = manager
+            .create_agent(
+                ws_summary.workspace_id.clone(),
+                "claude-code".to_string(),
+                Some("Test Agent".to_string()),
+            )
+            .await;
+
+        assert!(result.is_ok());
+        let agent_summary = result.unwrap();
+        assert!(!agent_summary.agent_id.is_empty());
+        assert_eq!(agent_summary.workspace_id, ws_summary.workspace_id);
+        assert_eq!(agent_summary.plugin_id, "claude-code");
+        assert_eq!(agent_summary.display_name, Some("Test Agent".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_create_agent_unknown_workspace() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager
+            .create_agent(
+                "nonexistent-workspace-id".to_string(),
+                "claude-code".to_string(),
+                None,
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ApiError::WorkspaceNotFound { workspace_id }) if workspace_id == "nonexistent-workspace-id"
+        ));
     }
 }
