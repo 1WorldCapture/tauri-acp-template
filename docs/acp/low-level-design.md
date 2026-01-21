@@ -29,9 +29,9 @@
 
 > 读完本章节，你应该能回答三个问题：
 >
-> 1) 前端调用一个 command 后，Rust 里“请求”是如何被路由到对应 workspace/agent 的？  
-> 2) Rust 如何通过 STDIO 与 ACP adapter 双向通信，并把 `session/update`、permission、terminal/fs 结果 emit 回前端？  
-> 3) 为什么这些模块的边界能保证“多 workspace 并行不串台”（至少在架构上成立）？
+> 1. 前端调用一个 command 后，Rust 里“请求”是如何被路由到对应 workspace/agent 的？
+> 2. Rust 如何通过 STDIO 与 ACP adapter 双向通信，并把 `session/update`、permission、terminal/fs 结果 emit 回前端？
+> 3. 为什么这些模块的边界能保证“多 workspace 并行不串台”（至少在架构上成立）？
 
 ### 命名空间方案（本设计采用）
 
@@ -137,6 +137,7 @@ flowchart LR
   - `src-tauri/src/protocols/acp/agent.rs`：`AcpAgent` 实现 `AgentConnection`（内部封装 STDIO 子进程 + JSON-RPC 连接 + ACP client callbacks；不向上暴露 process/connection/delegate 细节）。
 
   **数据流示意**：
+
   ```
   ┌──────────────────────────────────────────────────────────────────┐
   │                        Runtime (AgentRuntime)                     │
@@ -175,7 +176,6 @@ flowchart LR
   - `src-tauri/src/runtime/terminal.rs`：`TerminalManager`（每 workspace 一份、**支持并行多 terminalId**）；每次 one-shot command 都 spawn 独立子进程并绑定 `terminalId`，流式输出与退出按 `terminalId` emit `terminal/output`/`terminal/exited`；`AgentRuntime` 仅维护“归属/追踪”（如 `operationId -> terminalIds`），避免 stop/kill 误伤其他 agent 的执行。
   - `src-tauri/src/runtime/fs.rs`：`FsManager`（每 workspace 一份）；在 workspace root 边界内执行读写（本设计：fs.read 也需要 permission）；`AgentRuntime` 维护“归属/追踪”（如 `operationId -> fs ops`），实际 IO 仍以 workspace root 为边界。
   - `src-tauri/src/runtime/path.rs`：Path 工具；MVP 先覆盖“root 基准 join/normalize”，后续再统一补强 symlink/`..` 等安全校验策略。
-
 
 ### 模块清单（文件级索引）
 
@@ -222,6 +222,7 @@ flowchart LR
 ## US-01 创建 Workspace
 
 ### Rust 模块
+
 - `src-tauri/src/commands/workspaces.rs`
 - `src-tauri/src/runtime/workspace_manager.rs`
 - `src-tauri/src/runtime/workspace.rs`
@@ -229,13 +230,16 @@ flowchart LR
 - `src-tauri/src/api/types.rs`
 
 ### Commands（前端入口）
+
 - `workspace_create(rootDir: String) -> Result<WorkspaceSummary, ApiError>`
 
 ### 返回/通知边界
+
 - 返回 `WorkspaceSummary { workspaceId, rootDir, createdAtMs }`
 - MVP：不强制 emit 事件（可仅依赖返回值）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/api/types.rs`
   - 新增：`WorkspaceSummary`、`ApiError::InvalidInput/IoError`
 - `src-tauri/src/runtime/path.rs`
@@ -255,6 +259,7 @@ flowchart LR
   - allowlist：新增 `workspace_create`
 
 ### 时序图（到 Rust 返回为止）
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -280,20 +285,24 @@ Cmd-->>FE: WorkspaceSummary
 > 说明：workspace 并行运行不等于 UI 不需要“当前查看对象”。Focus 只影响 UI 展示与用户交互路由；不改变后端并行模型。
 
 ### Rust 模块
+
 - （可选）`src-tauri/src/runtime/workspace_manager.rs`
 - `src-tauri/src/commands/workspaces.rs`
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - 方案 A（纯前端）：不需要 Rust command（MVP 更简单）
 - 方案 B（可持久化/多窗口一致）：`workspace_set_focus(workspaceId) -> Result<(), ApiError>`
   - （可选）`workspace_get_focus() -> Result<Option<WorkspaceId>, ApiError>`
 
 ### 返回/通知边界
+
 - 返回 `()` 或 `workspaceId`
 - （可选）emit `acp/workspace_focus_changed`（多窗口需要时再加）
 
 ### 模块修改列表（方案 B）
+
 - `src-tauri/src/runtime/workspace_manager.rs`
   - 新增：`focused_workspace_id: Option<WorkspaceId>`
   - 新增：setter/getter
@@ -305,6 +314,7 @@ Cmd-->>FE: WorkspaceSummary
   - allowlist：新增 focus commands
 
 ### 时序图（方案 B）
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -322,19 +332,23 @@ Cmd-->>FE: Ok / Err
 ## US-03 检查插件安装/更新状态
 
 ### Rust 模块
+
 - `src-tauri/src/commands/plugins.rs`
 - `src-tauri/src/plugins/manager.rs`
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - `plugin_get_status(pluginId: String, checkUpdates: bool) -> Result<PluginStatus, ApiError>`
 
 ### 返回/通知边界
+
 - 返回 `PluginStatus { pluginId, installed, installedVersion?, latestVersion?, updateAvailable?, binPath? }`
 - MVP：`checkUpdates=false` 时只返回 installed + installedVersion/binPath
   - 设计说明：`checkUpdates=true` 可能依赖网络；MVP 可采用“best-effort”，离线/失败时允许 `latestVersion/updateAvailable` 为空或返回可读错误（由 `ApiError` 表达）。
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/api/types.rs`
   - 新增：`PluginStatus`
 - `src-tauri/src/plugins/manager.rs`
@@ -347,6 +361,7 @@ Cmd-->>FE: Ok / Err
   - allowlist：新增 `plugin_get_status`
 
 ### 时序图
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -371,6 +386,7 @@ Cmd-->>FE: PluginStatus / Err
 > - 当插件已安装时：`plugin_install(...)` 表示升级/切换版本（依然需要 permission）
 
 ### Rust 模块
+
 - `src-tauri/src/commands/plugins.rs`
 - `src-tauri/src/commands/permissions.rs`
 - `src-tauri/src/plugins/manager.rs`
@@ -379,16 +395,19 @@ Cmd-->>FE: PluginStatus / Err
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - `plugin_install(pluginId: String, version: Option<String>) -> Result<OperationStarted, ApiError>`
 - `permission_respond(operationId: OperationId, decision: PermissionDecision) -> Result<(), ApiError>`（统一权限响应入口，见 US-08/10/11）
 
 ### 返回/通知边界
+
 - `plugin_install`：立即返回 `OperationStarted { operationId }`
 - emit：`acp/permission_requested`（source = user action / install plugin；本设计的 permission 事件名沿用技术需求文档）
 - 安装进度（MVP 可简化）：完成后 emit `acp/plugin_status_changed`
   - origin 建议：安装插件并不必然属于某个 ACP toolcall，但建议 permission payload 支持可选 `origin.workspaceId`（用户在哪个 workspace 上下文触发安装）以便 UI 解释“作用范围”。
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/api/types.rs`
   - 新增：`PermissionRequestedEvent` 支持 `source`（`UserActionInstallPlugin`）与可选 `origin`（workspaceId/agentId/sessionId/toolCallId）
   - 新增：`PluginStatusChangedEvent`（或复用 `agent/status_changed`，但建议区分 plugin vs runtime）
@@ -409,6 +428,7 @@ Cmd-->>FE: PluginStatus / Err
   - allowlist：新增 install/permission response commands + 事件订阅权限（如有）
 
 ### 时序图（从 command 到通知边界）
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -444,6 +464,7 @@ CmdPerm-->>FE: Ok / Err
 ## US-05 在 Workspace 下创建 Agent（实体，不启动）
 
 ### Rust 模块
+
 - `src-tauri/src/commands/agents.rs`
 - `src-tauri/src/runtime/workspace_manager.rs`
 - `src-tauri/src/runtime/workspace.rs`
@@ -451,13 +472,16 @@ CmdPerm-->>FE: Ok / Err
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - `agent_create(workspaceId: WorkspaceId, pluginId: String, displayName: Option<String>) -> Result<AgentSummary, ApiError>`
 
 ### 返回/通知边界
+
 - 返回 `AgentSummary { agentId, workspaceId, pluginId, displayName }`
 - （可选）emit `agent/status_changed`（status=Stopped）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/api/types.rs`
   - 新增：`AgentSummary`
 - `src-tauri/src/runtime/agents.rs`
@@ -475,6 +499,7 @@ CmdPerm-->>FE: Ok / Err
   - allowlist：新增 `agent_create`
 
 ### 时序图
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -503,6 +528,7 @@ Cmd-->>FE: AgentSummary / Err
 > 如果插件未安装，应返回 `ApiError::PluginNotInstalled`（或等价错误），由前端引导用户走 US-04。
 
 ### Rust 模块
+
 - `src-tauri/src/commands/chat.rs`
 - `src-tauri/src/runtime/workspace_manager.rs`
 - `src-tauri/src/runtime/workspace.rs`
@@ -514,15 +540,18 @@ Cmd-->>FE: AgentSummary / Err
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - `chat_send_prompt(workspaceId, agentId, prompt) -> Result<SendPromptAck, ApiError>`
   - `SendPromptAck` 至少包含 `sessionId`（前端归并流式事件需要）
 
 ### 返回/通知边界
+
 - 返回：`SendPromptAck { sessionId }`
 - emit：`agent/status_changed`（Starting/Running/Errored）
 - 后续流式：见 US-07（`acp/session_update`）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/api/types.rs`
   - 新增：`SendPromptAck`
   - 新增/扩展：`AgentRuntimeStatus`（Starting/Running/Errored）
@@ -550,6 +579,7 @@ Cmd-->>FE: AgentSummary / Err
   - `chat_send_prompt` 内部：workspace 路由 → `WorkspaceManager::ensure_agent_runtime` → `AgentRuntime::ensure_started` → `AgentRuntime::send_prompt`（见 US-07）
 
 ### 时序图（懒启动部分）
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -587,6 +617,7 @@ Cmd-->>FE: SendPromptAck(sessionId)
 ## US-07 发送 Prompt 并流式展示回复（session/update）
 
 ### Rust 模块
+
 - `src-tauri/src/commands/chat.rs`
 - `src-tauri/src/runtime/agents.rs`
 - `src-tauri/src/protocols/agent_connection.rs`
@@ -595,13 +626,16 @@ Cmd-->>FE: SendPromptAck(sessionId)
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - `chat_send_prompt(...) -> Result<SendPromptAck, ApiError>`（延续 US-06）
 
 ### 返回/通知边界
+
 - command 返回 `SendPromptAck { sessionId }`
 - 流式通知：`acp/session_update`（payload 必带 `workspaceId + agentId + sessionId`）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/api/types.rs`
   - 定义：`AcpSessionUpdateEvent`、`AcpSessionUpdate`（chunk/toolcall/plan/unknown）
 - `src-tauri/src/runtime/agents.rs`
@@ -614,6 +648,7 @@ Cmd-->>FE: SendPromptAck(sessionId)
   - `send_prompt(sessionId, text)`（协议无关接口；ACP 实现内部映射到 `session/prompt`）
 
 ### 时序图（到 emit 为止）
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -646,6 +681,7 @@ end
 > 注：`AgentHost` 的 runtime 实现必须绑定 workspace 上下文（workspace root + `TerminalManager/FsManager`，见 US-06），因此协议层不需要、也不应该传递 `workspaceId/agentId` 来定位能力管理器。
 
 ### Rust 模块
+
 - `src-tauri/src/protocols/host.rs`
 - `src-tauri/src/protocols/acp/agent.rs`
 - `src-tauri/src/runtime/permissions.rs`
@@ -654,15 +690,18 @@ end
 - `src-tauri/src/commands/permissions.rs`（permission respond）
 
 ### Commands
+
 - `permission_respond(operationId, decision) -> Result<(), ApiError>`
 
 ### 返回/通知边界
+
 - emit：`acp/permission_requested`（由 PermissionHub 发出；AcpAgent 仅通过 AgentHost 发起 permission request）
 - emit：`terminal/output`（stdout/stderr chunk）
 - emit：`terminal/exited`（exit_code/user_stopped）
 - 同时：`acp/session_update` 会包含 toolcall 状态更新（由 adapter 发回）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/api/types.rs`
   - 定义：`AcpPermissionRequestedEvent`、`TerminalOutputEvent`、`TerminalExitedEvent`
 - `src-tauri/src/runtime/permissions.rs`
@@ -680,6 +719,7 @@ end
   - `permission_respond`：路由到 PermissionHub.respond
 
 ### 时序图（到 emit/ACP response 为止）
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -721,6 +761,7 @@ Cmd-->>FE: Ok / Err
 ## US-09 用户 Stop Terminal
 
 ### Rust 模块
+
 - `src-tauri/src/commands/terminal.rs`
 - `src-tauri/src/runtime/workspace_manager.rs`
 - `src-tauri/src/runtime/workspace.rs`
@@ -728,19 +769,23 @@ Cmd-->>FE: Ok / Err
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - `terminal_kill(workspaceId, terminalId) -> Result<(), ApiError>`
 
 ### 返回/通知边界
+
 - 返回 `()`
 - emit `terminal/exited(user_stopped=true)`（若尚未退出）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/runtime/terminal.rs`
   - `kill(terminalId) -> Result<()>`（标记 user_stopped）
 - `src-tauri/src/commands/terminal.rs`
   - 新增 `terminal_kill`
 
 ### 时序图
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -770,6 +815,7 @@ Cmd-->>FE: Ok / Err
 > 注：同 US-06，`AgentHost` 的 runtime 实现已绑定 workspace 上下文（workspace root + `FsManager`），因此协议层不需要、也不应该传递 `workspaceId/agentId` 来定位文件系统管理器。
 
 ### Rust 模块
+
 - `src-tauri/src/protocols/host.rs`
 - `src-tauri/src/protocols/acp/agent.rs`
 - `src-tauri/src/runtime/permissions.rs`
@@ -779,13 +825,16 @@ Cmd-->>FE: Ok / Err
 - `src-tauri/src/commands/permissions.rs`（permission respond）
 
 ### Commands
+
 - `permission_respond(...) -> Result<(), ApiError>`（同 US-08）
 
 ### 返回/通知边界
+
 - emit：`acp/permission_requested`（source=fs.read）
 - fs.read 的结果通过 ACP 返回给 adapter；前端可通过后续 `acp/session_update`（toolcall completed）看到摘要
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/protocols/host.rs`
   - `fs.read` 回调前也走 PermissionHub（本文件口径）；运行时负责 emit `acp/permission_requested`
 - `src-tauri/src/runtime/fs.rs`
@@ -794,6 +843,7 @@ Cmd-->>FE: Ok / Err
   - MVP：`resolve_path_in_workspace(root, input) -> PathBuf`（后续增强 symlink/..）
 
 ### 时序图
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -833,6 +883,7 @@ Cmd-->>FE: Ok / Err
 > 注：同 US-06，`AgentHost` 的 runtime 实现已绑定 workspace 上下文（workspace root + `FsManager`），因此协议层不需要、也不应该传递 `workspaceId/agentId` 来定位文件系统管理器。
 
 ### Rust 模块
+
 - `src-tauri/src/protocols/host.rs`
 - `src-tauri/src/protocols/acp/agent.rs`
 - `src-tauri/src/runtime/permissions.rs`
@@ -842,13 +893,16 @@ Cmd-->>FE: Ok / Err
 - `src-tauri/src/commands/permissions.rs`
 
 ### Commands
+
 - `permission_respond(...) -> Result<(), ApiError>`
 
 ### 返回/通知边界
+
 - emit：`acp/permission_requested`（source=fs.write，包含 path + content 摘要）
 - 写入结果通过 ACP 返回给 adapter；前端通过 toolcall update 看到完成/失败
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/runtime/fs.rs`
   - `write_text_file(path, content) -> Result<()>`（MVP 可先非原子，后续再原子化）
 - `src-tauri/src/runtime/path.rs`
@@ -857,6 +911,7 @@ Cmd-->>FE: Ok / Err
   - fs.write 回调：permission → path 校验 → write → ACP response（由运行时实现；ACP 实现只调用 `AgentHost`）
 
 ### 时序图
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -894,6 +949,7 @@ Cmd-->>FE: Ok / Err
 ## US-12 用户 Stop Turn（停止当前轮）
 
 ### Rust 模块
+
 - `src-tauri/src/commands/chat.rs`
 - `src-tauri/src/runtime/workspace_manager.rs`
 - `src-tauri/src/runtime/workspace.rs`
@@ -902,13 +958,16 @@ Cmd-->>FE: Ok / Err
 - `src-tauri/src/api/types.rs`
 
 ### Commands
+
 - `chat_stop_turn(workspaceId, agentId, sessionId) -> Result<(), ApiError>`
 
 ### 返回/通知边界
+
 - 返回 `()`
 - （可选）emit `acp/turn_stopped`（MVP 可先不发，前端以本地状态标记）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/protocols/agent_connection.rs`
   - 定义：`cancel_turn(sessionId)`（协议无关接口；ACP 实现内部映射到 cancel/stop turn 能力）
 - `src-tauri/src/runtime/agents.rs`
@@ -921,6 +980,7 @@ Cmd-->>FE: Ok / Err
   - 新增 `chat_stop_turn`（参数校验 → 路由到 `WorkspaceManager::stop_turn`）
 
 ### 时序图
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend
@@ -949,6 +1009,7 @@ Cmd-->>FE: Ok / Err
 > 这是跨用户故事的验收：并行运行不靠“切换”，而靠 **每个 workspace 独立 runtime + 所有事件携带 workspaceId**。
 
 ### Rust 模块
+
 - `src-tauri/src/runtime/workspace_manager.rs`
 - `src-tauri/src/runtime/workspace.rs`
 - `src-tauri/src/runtime/agents.rs`
@@ -961,15 +1022,18 @@ Cmd-->>FE: Ok / Err
 - `src-tauri/src/protocols/acp/agent.rs`
 
 ### Commands（参与者）
+
 - `workspace_create` / `agent_create` / `chat_send_prompt`
 - `permission_respond` / `terminal_kill` / `chat_stop_turn`
 
 ### 返回/通知边界
+
 - 所有事件 payload 必带 `workspaceId`
 - TerminalManager/FsManager 必须**按 workspace 实例隔离**
 - PermissionHub 必须支持“按 origin scope 路由/归并”，并保证 `operationId` 全局唯一（uuid）
 
 ### 模块修改列表（实现时）
+
 - `src-tauri/src/runtime/workspace_manager.rs`
   - 所有入口以 `workspaceId` 定位 `WorkspaceRuntime`
 - `src-tauri/src/runtime/workspace.rs`
@@ -982,6 +1046,7 @@ Cmd-->>FE: Ok / Err
   - 所有事件结构强制包含 `workspaceId`（或在 origin 中包含）
 
 ### 时序图（并行示意）
+
 ```mermaid
 sequenceDiagram
 actor FE as Frontend

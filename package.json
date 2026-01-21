@@ -31,7 +31,7 @@
     "tauri": "tauri",
     "tauri:dev": "source ~/.cargo/env && npm run tauri dev",
     "tauri:build": "npm run tauri build",
-    "tauri:check": "npm run typecheck && npm run tauri build --check",
+    "tauri:check": "npm run typecheck && npm run tauri -- build --no-bundle --ci",
     "test:all": "npm run test:run && npm run rust:test",
     "check:all": "npm run typecheck && npm run lint && npm run ast:lint && npm run format:check && npm run rust:fmt:check && npm run rust:clippy && npm run test:run && npm run rust:test",
     "fix:all": "npm run lint:fix && npm run format && npm run rust:fmt && npm run rust:clippy:fix",

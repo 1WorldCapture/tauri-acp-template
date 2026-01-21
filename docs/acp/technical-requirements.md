@@ -123,7 +123,7 @@
 
 > 模板不内置策略（超时、并发上限、危险命令拦截、自动重试等）；应用层可在模板暴露的钩子/包装层实现。
 
-## 7. 文件系统能力（fs/*）
+## 7. 文件系统能力（fs/\*）
 
 ### 目标
 
@@ -205,4 +205,3 @@
 - agent 触发 terminal 执行：用户每次确认后执行；terminal 输出在 UI 可见；agent 能收到输出；用户可 stop。
 - agent 触发 fs 写入：用户每次确认后写入 workspace 内文件。
 - tool calls、permissions、terminal 输出均可追踪到 `workspaceId + operationId`。
-

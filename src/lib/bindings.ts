@@ -142,6 +142,29 @@ async updateQuickPaneShortcut(shortcut: string | null) : Promise<Result<null, st
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Creates a new workspace with the specified root directory.
+ * 
+ * # Arguments
+ * * `root_dir` - Path to the workspace root directory (absolute or relative)
+ * 
+ * # Returns
+ * * `WorkspaceSummary` - Summary of the created workspace including ID and canonicalized path
+ * 
+ * # Errors
+ * * `ApiError::InvalidInput` - If root_dir is empty
+ * * `ApiError::PathNotFound` - If the path does not exist
+ * * `ApiError::PathNotDirectory` - If the path exists but is not a directory
+ * * `ApiError::IoError` - If the path cannot be canonicalized
+ */
+async workspaceCreate(rootDir: string) : Promise<Result<WorkspaceSummary, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("workspace_create", { rootDir }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -155,6 +178,26 @@ async updateQuickPaneShortcut(shortcut: string | null) : Promise<Result<null, st
 
 /** user-defined types **/
 
+/**
+ * API errors for frontend consumption
+ */
+export type ApiError = 
+/**
+ * Invalid input parameter
+ */
+{ type: "InvalidInput"; message: string } | 
+/**
+ * Path does not exist or is not accessible
+ */
+{ type: "PathNotFound"; path: string } | 
+/**
+ * Path is not a directory
+ */
+{ type: "PathNotDirectory"; path: string } | 
+/**
+ * IO error during file system operation
+ */
+{ type: "IoError"; message: string }
 /**
  * Application preferences that persist to disk.
  * Only contains settings that should be saved between sessions.
@@ -199,6 +242,23 @@ export type RecoveryError =
  * JSON serialization/deserialization error
  */
 { type: "ParseError"; message: string }
+/**
+ * Summary of a workspace returned to the frontend
+ */
+export type WorkspaceSummary = { 
+/**
+ * Unique workspace identifier
+ */
+workspaceId: string; 
+/**
+ * Canonicalized absolute path to workspace root
+ */
+rootDir: string; 
+/**
+ * Timestamp when workspace was created (milliseconds since epoch)
+ * Using f64 for JavaScript number compatibility
+ */
+createdAtMs: number }
 
 /** tauri-specta globals **/
 

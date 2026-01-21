@@ -4,8 +4,10 @@
 //! Command implementations are organized in the `commands` module,
 //! and shared types are in the `types` module.
 
+mod api;
 mod bindings;
 mod commands;
+mod runtime;
 mod types;
 mod utils;
 
@@ -99,6 +101,9 @@ pub fn run() {
                 "App handle initialized for package: {}",
                 app.package_info().name
             );
+
+            // Initialize workspace manager for ACP support
+            app.manage(runtime::workspace_manager::WorkspaceManager::new());
 
             // Set up global shortcut plugin (without any shortcuts - we register them separately)
             #[cfg(desktop)]
