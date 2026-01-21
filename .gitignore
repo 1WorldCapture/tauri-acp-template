@@ -25,3 +25,5 @@ jscpd-report
 *.njsproj
 *.sln
 *.sw?
+
+zed/
