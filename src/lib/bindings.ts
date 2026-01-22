@@ -345,6 +345,25 @@ async chatSendPrompt(workspaceId: string, agentId: string, prompt: string) : Pro
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+/**
+ * Stop a running terminal command by ID.
+ * 
+ * # Arguments
+ * * `workspace_id` - ID of the workspace containing the terminal
+ * * `terminal_id` - ID of the terminal run to stop
+ * 
+ * # Returns
+ * * `Ok(())` - Stop request accepted (idempotent)
+ * * `Err(ApiError)` - If workspace is missing or inputs are invalid
+ */
+async terminalKill(workspaceId: string, terminalId: string) : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("terminal_kill", { workspaceId, terminalId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -410,6 +429,10 @@ export type ApiError =
  * Operation not found by ID (e.g., permission already resolved, expired, or never existed)
  */
 { type: "operationNotFound"; operationId: string } | 
+/**
+ * Permission was denied by the user
+ */
+{ type: "permissionDenied"; operationId: string } | 
 /**
  * Plugin installation is already in progress
  */

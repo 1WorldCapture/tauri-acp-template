@@ -2,6 +2,7 @@
 //!
 //! MVP: Covers root canonicalization. Future: symlink/.. security checks.
 
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use crate::api::types::ApiError;
@@ -43,6 +44,75 @@ pub fn canonicalize_workspace_root(root: &str) -> Result<PathBuf, ApiError> {
     })
 }
 
+/// Resolve a file path within a workspace root.
+///
+/// This performs a canonicalization-based boundary check to ensure
+/// the resolved path stays within the workspace root. The input path
+/// must exist to be canonicalized.
+pub fn resolve_path_in_workspace(root: &Path, input: &str) -> Result<PathBuf, ApiError> {
+    if input.trim().is_empty() {
+        return Err(ApiError::InvalidInput {
+            message: "Path cannot be empty".to_string(),
+        });
+    }
+
+    let root_display = root.display().to_string();
+    let root = root.canonicalize().map_err(|e| ApiError::IoError {
+        message: format!("Failed to canonicalize workspace root '{root_display}': {e}"),
+    })?;
+
+    let input_path = Path::new(input);
+    if input_path.is_absolute() {
+        let resolved = input_path.canonicalize().map_err(|e| {
+            if e.kind() == ErrorKind::NotFound {
+                if !input_path.starts_with(&root) {
+                    ApiError::InvalidInput {
+                        message: format!("Path escapes workspace root: {input}"),
+                    }
+                } else {
+                    ApiError::PathNotFound {
+                        path: input.to_string(),
+                    }
+                }
+            } else {
+                ApiError::IoError {
+                    message: format!("Failed to canonicalize path '{input}': {e}"),
+                }
+            }
+        })?;
+
+        if !resolved.starts_with(&root) {
+            return Err(ApiError::InvalidInput {
+                message: format!("Path escapes workspace root: {input}"),
+            });
+        }
+
+        return Ok(resolved);
+    }
+
+    let candidate = root.join(input_path);
+
+    let resolved = candidate.canonicalize().map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            ApiError::PathNotFound {
+                path: input.to_string(),
+            }
+        } else {
+            ApiError::IoError {
+                message: format!("Failed to canonicalize path '{input}': {e}"),
+            }
+        }
+    })?;
+
+    if !resolved.starts_with(root) {
+        return Err(ApiError::InvalidInput {
+            message: format!("Path escapes workspace root: {input}"),
+        });
+    }
+
+    Ok(resolved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +148,76 @@ mod tests {
         let result = canonicalize_workspace_root(temp_file.to_str().unwrap());
         assert!(matches!(result, Err(ApiError::PathNotDirectory { .. })));
         std::fs::remove_file(&temp_file).expect("failed to remove temp file");
+    }
+
+    #[test]
+    fn test_resolve_path_in_workspace_relative() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let file_path = root.join("test.txt");
+        std::fs::write(&file_path, "hello").expect("failed to write file");
+
+        let resolved = resolve_path_in_workspace(&root, "test.txt").unwrap();
+        assert!(resolved.is_absolute());
+        assert_eq!(resolved, file_path.canonicalize().unwrap());
+
+        std::fs::remove_file(&file_path).expect("failed to remove file");
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[test]
+    fn test_resolve_path_in_workspace_absolute_inside_root() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let file_path = root.join("abs.txt");
+        std::fs::write(&file_path, "abs").expect("failed to write file");
+
+        let resolved = resolve_path_in_workspace(&root, file_path.to_str().unwrap()).unwrap();
+        assert_eq!(resolved, file_path.canonicalize().unwrap());
+
+        std::fs::remove_file(&file_path).expect("failed to remove file");
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[test]
+    fn test_resolve_path_in_workspace_absolute_outside_root() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let outside_dir = env::temp_dir().join(format!("outside_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&outside_dir).expect("failed to create outside dir");
+        let outside_file = outside_dir.join("secret.txt");
+        std::fs::write(&outside_file, "secret").expect("failed to write outside file");
+
+        let result = resolve_path_in_workspace(&root, outside_file.to_str().unwrap());
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+
+        std::fs::remove_file(&outside_file).expect("failed to remove outside file");
+        std::fs::remove_dir_all(&outside_dir).expect("failed to remove outside dir");
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[test]
+    fn test_resolve_path_in_workspace_rejects_escape() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let outside_dir = env::temp_dir().join(format!("outside_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&outside_dir).expect("failed to create outside dir");
+        let outside_file = outside_dir.join("secret.txt");
+        std::fs::write(&outside_file, "secret").expect("failed to write outside file");
+
+        let escape_path = format!(
+            "../{}/secret.txt",
+            outside_dir.file_name().unwrap().to_string_lossy()
+        );
+        let result = resolve_path_in_workspace(&root, &escape_path);
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+
+        std::fs::remove_file(&outside_file).expect("failed to remove outside file");
+        std::fs::remove_dir_all(&outside_dir).expect("failed to remove outside dir");
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
     }
 }

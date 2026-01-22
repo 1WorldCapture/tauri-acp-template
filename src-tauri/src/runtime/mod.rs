@@ -5,6 +5,7 @@
 
 pub mod agent_host;
 pub mod agents;
+pub mod fs;
 pub mod path;
 pub mod permissions;
 pub mod plugin_installer;

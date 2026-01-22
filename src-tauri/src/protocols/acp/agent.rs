@@ -25,7 +25,9 @@ use uuid::Uuid;
 use crate::api::types::{ApiError, PermissionSource, SessionId};
 use crate::plugins::manager::PluginCommand;
 use crate::protocols::agent_connection::AgentConnection;
-use crate::protocols::host::{AgentHost, PermissionRequest, TerminalRunRequest};
+use crate::protocols::host::{
+    AgentHost, FsReadTextFileRequest, PermissionRequest, TerminalRunRequest,
+};
 
 /// JSON-RPC method name for sending prompts (US-07)
 const METHOD_SEND_PROMPT: &str = "session/prompt";
@@ -38,6 +40,9 @@ const METHOD_REQUEST_PERMISSION: &str = "request_permission";
 
 /// JSON-RPC method name for terminal run requests (US-08)
 const METHOD_TERMINAL_RUN: &str = "terminal/run";
+/// JSON-RPC method name for file read requests (US-10)
+const METHOD_FS_READ_TEXT_FILE: &str = "fs.read_text_file";
+const METHOD_FS_READ_TEXT_FILE_ALIAS: &str = "read_text_file";
 
 const MAX_INFLIGHT_REQUESTS: usize = 8;
 
@@ -442,6 +447,35 @@ async fn handle_request(
                 }
             }
         }
+        METHOD_FS_READ_TEXT_FILE | METHOD_FS_READ_TEXT_FILE_ALIAS => {
+            let path = extract_path(&params);
+            if path.is_none() {
+                jsonrpc_error(id, -32602, "Missing path")
+            } else {
+                let session_id = extract_string(&params, &["sessionId", "session_id"])
+                    .or(Some(fallback_session_id.clone()));
+                let tool_call_id = extract_string(&params, &["toolCallId", "tool_call_id"]);
+                let operation_id = extract_string(&params, &["operationId", "operation_id"]);
+
+                let request = FsReadTextFileRequest {
+                    path: path.unwrap_or_default(),
+                    session_id,
+                    tool_call_id,
+                    operation_id,
+                };
+
+                match host.fs_read_text_file(request).await {
+                    Ok(result) => serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": result.content
+                        }
+                    }),
+                    Err(e) => jsonrpc_error(id, -32000, &e.to_string()),
+                }
+            }
+        }
         _ => jsonrpc_error(id, -32601, "Method not found"),
     };
 
@@ -455,6 +489,14 @@ fn extract_command(params: &serde_json::Value) -> Option<String> {
         params
             .get("details")
             .and_then(|details| extract_string(details, &["command", "commandString", "cmd"]))
+    })
+}
+
+fn extract_path(params: &serde_json::Value) -> Option<String> {
+    extract_string(params, &["path", "filePath", "file_path"]).or_else(|| {
+        params
+            .get("details")
+            .and_then(|details| extract_string(details, &["path", "filePath", "file_path"]))
     })
 }
 

@@ -22,6 +22,7 @@ use crate::protocols::acp::AcpAgent;
 use crate::protocols::agent_connection::AgentConnection;
 use crate::protocols::host::AgentHost;
 use crate::runtime::agent_host::RuntimeAgentHost;
+use crate::runtime::fs::FsManager;
 use crate::runtime::permissions::PermissionHub;
 use crate::runtime::terminal::TerminalManager;
 
@@ -107,6 +108,9 @@ impl AgentRuntime {
     /// * `app` - Tauri application handle for events
     /// * `workspace_root` - Root directory of the workspace
     /// * `plugin_manager` - For resolving the plugin binary
+    /// * `permission_hub` - Permission hub for approval flow
+    /// * `terminal_manager` - Terminal manager scoped to the workspace
+    /// * `fs_manager` - File system manager scoped to the workspace
     ///
     /// # Returns
     /// * `Ok(SessionId)` - The session ID (existing or newly created)
@@ -118,6 +122,7 @@ impl AgentRuntime {
         plugin_manager: Arc<PluginManager>,
         permission_hub: Arc<PermissionHub>,
         terminal_manager: Arc<TerminalManager>,
+        fs_manager: Arc<FsManager>,
     ) -> Result<SessionId, ApiError> {
         // Fast path: already running
         {
@@ -161,6 +166,7 @@ impl AgentRuntime {
             self.agent_id.clone(),
             permission_hub,
             terminal_manager,
+            fs_manager,
         );
 
         // Emit Starting status

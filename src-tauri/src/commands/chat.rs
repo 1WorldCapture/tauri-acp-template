@@ -28,6 +28,7 @@ async fn chat_send_prompt_inner(
     let workspace = workspace_manager.get_workspace(&workspace_id).await?;
     let workspace_root = workspace.root_dir().clone();
     let terminal_manager = workspace.terminal_manager();
+    let fs_manager = workspace.fs_manager();
     let permission_hub = app.state::<Arc<PermissionHub>>().inner().clone();
 
     // Ensure agent runtime exists (use workspace directly to avoid redundant lookup)
@@ -41,6 +42,7 @@ async fn chat_send_prompt_inner(
             plugin_manager,
             permission_hub,
             terminal_manager,
+            fs_manager,
         )
         .await?;
 

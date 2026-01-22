@@ -99,7 +99,9 @@ pub enum PermissionSource {
     },
     /// Agent-requested terminal execution
     TerminalRun { command: String },
-    // Future: FsRead, FsWrite (US-10/11)
+    /// Agent-requested file read
+    FsReadTextFile { path: String },
+    // Future: FsWrite (US-11)
 }
 
 /// Origin context for a permission request (optional scoping)
@@ -313,6 +315,11 @@ pub enum ApiError {
         #[serde(rename = "operationId")]
         operation_id: OperationId,
     },
+    /// Permission was denied by the user
+    PermissionDenied {
+        #[serde(rename = "operationId")]
+        operation_id: OperationId,
+    },
     /// Plugin installation is already in progress
     PluginInstallInProgress {
         #[serde(rename = "pluginId")]
@@ -347,6 +354,9 @@ impl std::fmt::Display for ApiError {
             }
             ApiError::OperationNotFound { operation_id } => {
                 write!(f, "Operation not found: {operation_id}")
+            }
+            ApiError::PermissionDenied { operation_id } => {
+                write!(f, "Permission denied: {operation_id}")
             }
             ApiError::PluginInstallInProgress { plugin_id } => {
                 write!(f, "Plugin installation already in progress: {plugin_id}")

@@ -14,10 +14,12 @@ use uuid::Uuid;
 
 use crate::api::types::{
     AcpSessionUpdate, AcpSessionUpdateEvent, AgentId, AgentRuntimeStatus, AgentStatusChangedEvent,
-    ApiError, PermissionDecision, PermissionOrigin, SessionId, TerminalExitedEvent,
-    TerminalOutputEvent, TerminalStream, WorkspaceId,
+    ApiError, PermissionDecision, PermissionOrigin, PermissionSource, SessionId,
+    TerminalExitedEvent, TerminalOutputEvent, TerminalStream, WorkspaceId,
 };
 use crate::protocols::host::{AgentHost, PermissionRequest, TerminalRunRequest, TerminalRunResult};
+use crate::protocols::host::{FsReadTextFileRequest, FsReadTextFileResult};
+use crate::runtime::fs::FsManager;
 use crate::runtime::permissions::PermissionHub;
 use crate::runtime::terminal::{TerminalExit, TerminalManager, TerminalRunHandle};
 
@@ -51,6 +53,8 @@ pub struct RuntimeAgentHost {
     permission_hub: Arc<PermissionHub>,
     /// Terminal manager for command execution
     terminal_manager: Arc<TerminalManager>,
+    /// File system manager for workspace-scoped reads
+    fs_manager: Arc<FsManager>,
 }
 
 impl RuntimeAgentHost {
@@ -68,6 +72,7 @@ impl RuntimeAgentHost {
         agent_id: AgentId,
         permission_hub: Arc<PermissionHub>,
         terminal_manager: Arc<TerminalManager>,
+        fs_manager: Arc<FsManager>,
     ) -> Arc<Self> {
         Arc::new(Self {
             app,
@@ -75,6 +80,7 @@ impl RuntimeAgentHost {
             agent_id,
             permission_hub,
             terminal_manager,
+            fs_manager,
         })
     }
 }
@@ -276,6 +282,41 @@ impl AgentHost for RuntimeAgentHost {
             stdout: stdout_buffer,
             stderr: stderr_buffer,
         })
+    }
+
+    async fn fs_read_text_file(
+        &self,
+        request: FsReadTextFileRequest,
+    ) -> Result<FsReadTextFileResult, ApiError> {
+        let operation_id = request
+            .operation_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        let origin = PermissionOrigin {
+            workspace_id: Some(self.workspace_id.clone()),
+            agent_id: Some(self.agent_id.clone()),
+            session_id: request.session_id,
+            tool_call_id: request.tool_call_id,
+        };
+
+        let decision = self
+            .permission_hub
+            .request(
+                operation_id.clone(),
+                PermissionSource::FsReadTextFile {
+                    path: request.path.clone(),
+                },
+                Some(origin),
+            )
+            .await?;
+
+        if decision != PermissionDecision::AllowOnce {
+            return Err(ApiError::PermissionDenied { operation_id });
+        }
+
+        let content = self.fs_manager.read_text_file(request.path).await?;
+        Ok(FsReadTextFileResult { content })
     }
 }
 

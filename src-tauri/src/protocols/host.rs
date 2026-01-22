@@ -39,6 +39,21 @@ pub struct TerminalRunResult {
     pub stderr: String,
 }
 
+/// File read request from a protocol adapter.
+#[derive(Debug, Clone)]
+pub struct FsReadTextFileRequest {
+    pub path: String,
+    pub session_id: Option<SessionId>,
+    pub tool_call_id: Option<String>,
+    pub operation_id: Option<OperationId>,
+}
+
+/// File read result returned to the protocol adapter.
+#[derive(Debug, Clone)]
+pub struct FsReadTextFileResult {
+    pub content: String,
+}
+
 /// Callback interface for protocol implementations to interact with runtime.
 ///
 /// Implemented by the runtime layer (RuntimeAgentHost) and passed to protocol
@@ -86,4 +101,10 @@ pub trait AgentHost: Send + Sync {
         &self,
         request: TerminalRunRequest,
     ) -> Result<TerminalRunResult, ApiError>;
+
+    /// Read a text file (US-10).
+    async fn fs_read_text_file(
+        &self,
+        request: FsReadTextFileRequest,
+    ) -> Result<FsReadTextFileResult, ApiError>;
 }
