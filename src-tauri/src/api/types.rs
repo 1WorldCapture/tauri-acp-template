@@ -101,7 +101,12 @@ pub enum PermissionSource {
     TerminalRun { command: String },
     /// Agent-requested file read
     FsReadTextFile { path: String },
-    // Future: FsWrite (US-11)
+    /// Agent-requested file write
+    FsWriteTextFile {
+        path: String,
+        content_preview: String,
+        content_truncated: bool,
+    },
 }
 
 /// Origin context for a permission request (optional scoping)

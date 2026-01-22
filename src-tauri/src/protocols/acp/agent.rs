@@ -26,7 +26,7 @@ use crate::api::types::{ApiError, PermissionSource, SessionId};
 use crate::plugins::manager::PluginCommand;
 use crate::protocols::agent_connection::AgentConnection;
 use crate::protocols::host::{
-    AgentHost, FsReadTextFileRequest, PermissionRequest, TerminalRunRequest,
+    AgentHost, FsReadTextFileRequest, FsWriteTextFileRequest, PermissionRequest, TerminalRunRequest,
 };
 
 /// JSON-RPC method name for sending prompts (US-07)
@@ -43,6 +43,9 @@ const METHOD_TERMINAL_RUN: &str = "terminal/run";
 /// JSON-RPC method name for file read requests (US-10)
 const METHOD_FS_READ_TEXT_FILE: &str = "fs.read_text_file";
 const METHOD_FS_READ_TEXT_FILE_ALIAS: &str = "read_text_file";
+/// JSON-RPC method name for file write requests (US-11)
+const METHOD_FS_WRITE_TEXT_FILE: &str = "fs.write_text_file";
+const METHOD_FS_WRITE_TEXT_FILE_ALIAS: &str = "write_text_file";
 
 const MAX_INFLIGHT_REQUESTS: usize = 8;
 
@@ -476,6 +479,37 @@ async fn handle_request(
                 }
             }
         }
+        METHOD_FS_WRITE_TEXT_FILE | METHOD_FS_WRITE_TEXT_FILE_ALIAS => {
+            let path = extract_path(&params);
+            let content = extract_content(&params);
+            if path.is_none() {
+                jsonrpc_error(id, -32602, "Missing path")
+            } else if content.is_none() {
+                jsonrpc_error(id, -32602, "Missing content")
+            } else {
+                let session_id = extract_string(&params, &["sessionId", "session_id"])
+                    .or(Some(fallback_session_id.clone()));
+                let tool_call_id = extract_string(&params, &["toolCallId", "tool_call_id"]);
+                let operation_id = extract_string(&params, &["operationId", "operation_id"]);
+
+                let request = FsWriteTextFileRequest {
+                    path: path.unwrap_or_default(),
+                    content: content.unwrap_or_default(),
+                    session_id,
+                    tool_call_id,
+                    operation_id,
+                };
+
+                match host.fs_write_text_file(request).await {
+                    Ok(_) => serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {}
+                    }),
+                    Err(e) => jsonrpc_error(id, -32000, &e.to_string()),
+                }
+            }
+        }
         _ => jsonrpc_error(id, -32601, "Method not found"),
     };
 
@@ -497,6 +531,14 @@ fn extract_path(params: &serde_json::Value) -> Option<String> {
         params
             .get("details")
             .and_then(|details| extract_string(details, &["path", "filePath", "file_path"]))
+    })
+}
+
+fn extract_content(params: &serde_json::Value) -> Option<String> {
+    extract_string(params, &["content", "text"]).or_else(|| {
+        params
+            .get("details")
+            .and_then(|details| extract_string(details, &["content", "text"]))
     })
 }
 

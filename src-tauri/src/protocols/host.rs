@@ -54,6 +54,20 @@ pub struct FsReadTextFileResult {
     pub content: String,
 }
 
+/// File write request from a protocol adapter.
+#[derive(Debug, Clone)]
+pub struct FsWriteTextFileRequest {
+    pub path: String,
+    pub content: String,
+    pub session_id: Option<SessionId>,
+    pub tool_call_id: Option<String>,
+    pub operation_id: Option<OperationId>,
+}
+
+/// File write result returned to the protocol adapter.
+#[derive(Debug, Clone)]
+pub struct FsWriteTextFileResult;
+
 /// Callback interface for protocol implementations to interact with runtime.
 ///
 /// Implemented by the runtime layer (RuntimeAgentHost) and passed to protocol
@@ -107,4 +121,10 @@ pub trait AgentHost: Send + Sync {
         &self,
         request: FsReadTextFileRequest,
     ) -> Result<FsReadTextFileResult, ApiError>;
+
+    /// Write a text file (US-11).
+    async fn fs_write_text_file(
+        &self,
+        request: FsWriteTextFileRequest,
+    ) -> Result<FsWriteTextFileResult, ApiError>;
 }

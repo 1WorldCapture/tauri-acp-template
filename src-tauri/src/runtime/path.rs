@@ -2,6 +2,7 @@
 //!
 //! MVP: Covers root canonicalization. Future: symlink/.. security checks.
 
+use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -113,6 +114,91 @@ pub fn resolve_path_in_workspace(root: &Path, input: &str) -> Result<PathBuf, Ap
     Ok(resolved)
 }
 
+/// Resolve a write target within a workspace root.
+///
+/// This allows the target file to be missing, while still enforcing that the
+/// parent directory exists and is inside the workspace root.
+pub fn resolve_write_target_in_workspace(root: &Path, input: &str) -> Result<PathBuf, ApiError> {
+    if input.trim().is_empty() {
+        return Err(ApiError::InvalidInput {
+            message: "Path cannot be empty".to_string(),
+        });
+    }
+
+    let root_display = root.display().to_string();
+    let root = root.canonicalize().map_err(|e| ApiError::IoError {
+        message: format!("Failed to canonicalize workspace root '{root_display}': {e}"),
+    })?;
+
+    let input_path = Path::new(input);
+    let candidate = if input_path.is_absolute() {
+        input_path.to_path_buf()
+    } else {
+        root.join(input_path)
+    };
+
+    let file_name = candidate
+        .file_name()
+        .ok_or_else(|| ApiError::InvalidInput {
+            message: format!("Path must include a file name: {input}"),
+        })?;
+
+    let file_name_str = file_name.to_string_lossy();
+    if file_name_str == "." || file_name_str == ".." {
+        return Err(ApiError::InvalidInput {
+            message: format!("Path must include a file name: {input}"),
+        });
+    }
+
+    let parent = candidate.parent().ok_or_else(|| ApiError::InvalidInput {
+        message: format!("Path must include a parent directory: {input}"),
+    })?;
+
+    let canonical_parent = parent.canonicalize().map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            ApiError::PathNotFound {
+                path: parent.display().to_string(),
+            }
+        } else {
+            ApiError::IoError {
+                message: format!("Failed to canonicalize path '{input}': {e}"),
+            }
+        }
+    })?;
+
+    if !canonical_parent.starts_with(&root) {
+        return Err(ApiError::InvalidInput {
+            message: format!("Path escapes workspace root: {input}"),
+        });
+    }
+
+    match fs::symlink_metadata(&candidate) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return Err(ApiError::InvalidInput {
+                    message: format!("Path is a symlink: {input}"),
+                });
+            }
+
+            let resolved = candidate.canonicalize().map_err(|e| ApiError::IoError {
+                message: format!("Failed to canonicalize path '{input}': {e}"),
+            })?;
+
+            if !resolved.starts_with(&root) {
+                return Err(ApiError::InvalidInput {
+                    message: format!("Path escapes workspace root: {input}"),
+                });
+            }
+
+            Ok(resolved)
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(canonical_parent.join(file_name)),
+        Err(e) => Err(ApiError::IoError {
+            message: format!("Failed to read metadata for '{input}': {e}"),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +302,89 @@ mod tests {
         let result = resolve_path_in_workspace(&root, &escape_path);
         assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
 
+        std::fs::remove_file(&outside_file).expect("failed to remove outside file");
+        std::fs::remove_dir_all(&outside_dir).expect("failed to remove outside dir");
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[test]
+    fn test_resolve_write_target_allows_new_file() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let resolved = resolve_write_target_in_workspace(&root, "new.txt").unwrap();
+        assert_eq!(resolved, root.canonicalize().unwrap().join("new.txt"));
+
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[test]
+    fn test_resolve_write_target_rejects_missing_parent() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let result = resolve_write_target_in_workspace(&root, "missing/new.txt");
+        assert!(matches!(result, Err(ApiError::PathNotFound { .. })));
+
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[test]
+    fn test_resolve_write_target_rejects_absolute_outside_root() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let outside_dir = env::temp_dir().join(format!("outside_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&outside_dir).expect("failed to create outside dir");
+        let outside_file = outside_dir.join("secret.txt");
+
+        let result = resolve_write_target_in_workspace(&root, outside_file.to_str().unwrap());
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+
+        std::fs::remove_dir_all(&outside_dir).expect("failed to remove outside dir");
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[test]
+    fn test_resolve_write_target_rejects_escape() {
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let outside_dir = env::temp_dir().join(format!("outside_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&outside_dir).expect("failed to create outside dir");
+
+        let escape_path = format!(
+            "../{}/secret.txt",
+            outside_dir.file_name().unwrap().to_string_lossy()
+        );
+        let result = resolve_write_target_in_workspace(&root, &escape_path);
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+
+        std::fs::remove_dir_all(&outside_dir).expect("failed to remove outside dir");
+        std::fs::remove_dir_all(&root).expect("failed to remove root dir");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_resolve_write_target_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let root = env::temp_dir().join(format!("ws_root_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("failed to create root dir");
+
+        let outside_dir = env::temp_dir().join(format!("outside_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&outside_dir).expect("failed to create outside dir");
+        let outside_file = outside_dir.join("secret.txt");
+        std::fs::write(&outside_file, "secret").expect("failed to write outside file");
+
+        let symlink_path = root.join("link.txt");
+        symlink(&outside_file, &symlink_path).expect("failed to create symlink");
+
+        let result =
+            resolve_write_target_in_workspace(&root, symlink_path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(result, ApiError::InvalidInput { .. }));
+
+        std::fs::remove_file(&symlink_path).expect("failed to remove symlink");
         std::fs::remove_file(&outside_file).expect("failed to remove outside file");
         std::fs::remove_dir_all(&outside_dir).expect("failed to remove outside dir");
         std::fs::remove_dir_all(&root).expect("failed to remove root dir");

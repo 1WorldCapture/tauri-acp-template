@@ -7,18 +7,23 @@
 //! Key design principle: The AgentHost implementation holds workspace/agent context,
 //! so the protocol layer never needs to know about these business concepts.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tauri::Emitter;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::api::types::{
     AcpSessionUpdate, AcpSessionUpdateEvent, AgentId, AgentRuntimeStatus, AgentStatusChangedEvent,
-    ApiError, PermissionDecision, PermissionOrigin, PermissionSource, SessionId,
+    ApiError, OperationId, PermissionDecision, PermissionOrigin, PermissionSource, SessionId,
     TerminalExitedEvent, TerminalOutputEvent, TerminalStream, WorkspaceId,
 };
-use crate::protocols::host::{AgentHost, PermissionRequest, TerminalRunRequest, TerminalRunResult};
-use crate::protocols::host::{FsReadTextFileRequest, FsReadTextFileResult};
+use crate::protocols::host::{
+    AgentHost, FsReadTextFileRequest, FsReadTextFileResult, FsWriteTextFileRequest,
+    FsWriteTextFileResult, PermissionRequest, TerminalRunRequest, TerminalRunResult,
+};
 use crate::runtime::fs::FsManager;
 use crate::runtime::permissions::PermissionHub;
 use crate::runtime::terminal::{TerminalExit, TerminalManager, TerminalRunHandle};
@@ -55,6 +60,8 @@ pub struct RuntimeAgentHost {
     terminal_manager: Arc<TerminalManager>,
     /// File system manager for workspace-scoped reads
     fs_manager: Arc<FsManager>,
+    /// Pre-approved operation IDs from ACP request_permission
+    preapproved_ops: Mutex<HashMap<OperationId, Instant>>,
 }
 
 impl RuntimeAgentHost {
@@ -81,11 +88,14 @@ impl RuntimeAgentHost {
             permission_hub,
             terminal_manager,
             fs_manager,
+            preapproved_ops: Mutex::new(HashMap::new()),
         })
     }
 }
 
 const OUTPUT_CAPTURE_LIMIT: usize = 64 * 1024;
+const CONTENT_PREVIEW_LIMIT: usize = 4 * 1024;
+const PREAPPROVAL_TTL: Duration = Duration::from_secs(10 * 60);
 
 #[async_trait::async_trait]
 impl AgentHost for RuntimeAgentHost {
@@ -153,6 +163,7 @@ impl AgentHost for RuntimeAgentHost {
         &self,
         request: PermissionRequest,
     ) -> Result<PermissionDecision, ApiError> {
+        let has_request_operation_id = request.operation_id.is_some();
         let operation_id = request
             .operation_id
             .clone()
@@ -165,9 +176,18 @@ impl AgentHost for RuntimeAgentHost {
             tool_call_id: request.tool_call_id.clone(),
         };
 
-        self.permission_hub
+        let decision = self
+            .permission_hub
             .request(operation_id.clone(), request.source, Some(origin))
-            .await
+            .await?;
+
+        if decision == PermissionDecision::AllowOnce && has_request_operation_id {
+            let mut preapproved = self.preapproved_ops.lock().await;
+            prune_preapprovals(&mut preapproved);
+            preapproved.insert(operation_id, Instant::now());
+        }
+
+        Ok(decision)
     }
 
     async fn terminal_run(
@@ -318,6 +338,70 @@ impl AgentHost for RuntimeAgentHost {
         let content = self.fs_manager.read_text_file(request.path).await?;
         Ok(FsReadTextFileResult { content })
     }
+
+    async fn fs_write_text_file(
+        &self,
+        request: FsWriteTextFileRequest,
+    ) -> Result<FsWriteTextFileResult, ApiError> {
+        let operation_id = request
+            .operation_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        let origin = PermissionOrigin {
+            workspace_id: Some(self.workspace_id.clone()),
+            agent_id: Some(self.agent_id.clone()),
+            session_id: request.session_id,
+            tool_call_id: request.tool_call_id,
+        };
+
+        let (content_preview, content_truncated, content_len) =
+            summarize_content(&request.content, CONTENT_PREVIEW_LIMIT);
+
+        if let Some(op_id) = request.operation_id.as_ref() {
+            if self.consume_preapproval(op_id).await {
+                log::debug!(
+                    "Using preapproved permission: operation_id={op_id}, content_len={content_len}"
+                );
+                let bytes_written = self
+                    .fs_manager
+                    .write_text_file(request.path, request.content)
+                    .await?;
+
+                log::debug!("Write completed: bytes_written={bytes_written}");
+                return Ok(FsWriteTextFileResult);
+            }
+        }
+
+        let decision = self
+            .permission_hub
+            .request(
+                operation_id.clone(),
+                PermissionSource::FsWriteTextFile {
+                    path: request.path.clone(),
+                    content_preview,
+                    content_truncated,
+                },
+                Some(origin),
+            )
+            .await?;
+
+        log::debug!(
+            "Permission requested for write: operation_id={operation_id}, content_len={content_len}"
+        );
+
+        if decision != PermissionDecision::AllowOnce {
+            return Err(ApiError::PermissionDenied { operation_id });
+        }
+
+        let bytes_written = self
+            .fs_manager
+            .write_text_file(request.path, request.content)
+            .await?;
+
+        log::debug!("Write completed: bytes_written={bytes_written}");
+        Ok(FsWriteTextFileResult)
+    }
 }
 
 fn append_capped(target: &mut String, chunk: &str, cap: usize) {
@@ -339,4 +423,37 @@ fn append_capped(target: &mut String, chunk: &str, cap: usize) {
         target.push_str(&chunk[..end]);
         target.push_str("\n...[truncated]");
     }
+}
+
+fn summarize_content(content: &str, max_chars: usize) -> (String, bool, usize) {
+    let total_len = content.len();
+    if content.len() <= max_chars {
+        return (content.to_string(), false, total_len);
+    }
+
+    let mut end = 0;
+    for (idx, ch) in content.char_indices() {
+        let next = idx + ch.len_utf8();
+        if next > max_chars {
+            break;
+        }
+        end = next;
+    }
+
+    let mut preview = content[..end].to_string();
+    preview.push_str("\n...[truncated]");
+    (preview, true, total_len)
+}
+
+impl RuntimeAgentHost {
+    async fn consume_preapproval(&self, operation_id: &OperationId) -> bool {
+        let mut preapproved = self.preapproved_ops.lock().await;
+        prune_preapprovals(&mut preapproved);
+        preapproved.remove(operation_id).is_some()
+    }
+}
+
+fn prune_preapprovals(preapproved: &mut HashMap<OperationId, Instant>) {
+    let now = Instant::now();
+    preapproved.retain(|_, timestamp| now.duration_since(*timestamp) <= PREAPPROVAL_TTL);
 }
