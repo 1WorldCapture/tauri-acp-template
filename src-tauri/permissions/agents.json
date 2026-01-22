@@ -1,0 +1,18 @@
+{
+  "permission": [
+    {
+      "identifier": "allow-agent-create",
+      "description": "Allows the agent_create command.",
+      "commands": {
+        "allow": ["agent_create"]
+      }
+    },
+    {
+      "identifier": "allow-agent-list",
+      "description": "Allows the agent_list command.",
+      "commands": {
+        "allow": ["agent_list"]
+      }
+    }
+  ]
+}

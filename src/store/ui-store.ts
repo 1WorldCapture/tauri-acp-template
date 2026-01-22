@@ -9,6 +9,7 @@ interface UIState {
   lastQuickPaneEntry: string | null
   selectedProjectId: string | null
   projectPendingDeleteId: string | null
+  selectedAgentId: string | null
 
   toggleLeftSidebar: () => void
   setLeftSidebarVisible: (visible: boolean) => void
@@ -21,6 +22,11 @@ interface UIState {
   setLastQuickPaneEntry: (text: string) => void
   setSelectedProjectId: (id: string | null) => void
   setProjectPendingDeleteId: (id: string | null) => void
+  setSelectedAgentId: (id: string | null) => void
+  /** Select an agent with its project - ensures both IDs are set together */
+  selectAgent: (projectId: string, agentId: string) => void
+  /** Clear agent selection */
+  clearAgentSelection: () => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -33,6 +39,7 @@ export const useUIStore = create<UIState>()(
       lastQuickPaneEntry: null,
       selectedProjectId: null,
       projectPendingDeleteId: null,
+      selectedAgentId: null,
 
       toggleLeftSidebar: () =>
         set(
@@ -86,7 +93,11 @@ export const useUIStore = create<UIState>()(
         set({ lastQuickPaneEntry: text }, undefined, 'setLastQuickPaneEntry'),
 
       setSelectedProjectId: id =>
-        set({ selectedProjectId: id }, undefined, 'setSelectedProjectId'),
+        set(
+          { selectedProjectId: id, selectedAgentId: null },
+          undefined,
+          'setSelectedProjectId'
+        ),
 
       setProjectPendingDeleteId: id =>
         set(
@@ -94,6 +105,19 @@ export const useUIStore = create<UIState>()(
           undefined,
           'setProjectPendingDeleteId'
         ),
+
+      setSelectedAgentId: id =>
+        set({ selectedAgentId: id }, undefined, 'setSelectedAgentId'),
+
+      selectAgent: (projectId, agentId) =>
+        set(
+          { selectedProjectId: projectId, selectedAgentId: agentId },
+          undefined,
+          'selectAgent'
+        ),
+
+      clearAgentSelection: () =>
+        set({ selectedAgentId: null }, undefined, 'clearAgentSelection'),
     }),
     {
       name: 'ui-store',

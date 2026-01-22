@@ -345,6 +345,26 @@ async agentCreate(workspaceId: string, pluginId: string, displayName: string | n
 }
 },
 /**
+ * Lists all agents within a workspace.
+ * 
+ * # Arguments
+ * * `workspace_id` - ID of the workspace to list agents from
+ * 
+ * # Returns
+ * * `Vec<AgentSummary>` - List of all agent summaries
+ * 
+ * # Errors
+ * * `ApiError::WorkspaceNotFound` - If the workspace does not exist
+ */
+async agentList(workspaceId: string) : Promise<Result<AgentSummary[], ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("agent_list", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Send a prompt to an agent, triggering lazy startup if needed.
  * 
  * US-06: This command triggers agent lazy startup on first call.

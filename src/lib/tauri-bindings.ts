@@ -23,6 +23,7 @@
 
 export { commands, type Result } from './bindings'
 export type {
+  AgentSummary,
   AppPreferences,
   JsonValue,
   PermissionDecision,

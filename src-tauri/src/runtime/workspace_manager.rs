@@ -230,6 +230,22 @@ impl WorkspaceManager {
         workspace.create_agent(plugin_id, display_name).await
     }
 
+    /// Lists all agents within a workspace.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - ID of the workspace to list agents from
+    ///
+    /// # Returns
+    /// * `Ok(Vec<AgentSummary>)` - List of all agent summaries
+    /// * `Err(ApiError::WorkspaceNotFound)` - If the workspace does not exist
+    pub async fn list_agents(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<Vec<AgentSummary>, ApiError> {
+        let workspace = self.get_workspace(&workspace_id).await?;
+        Ok(workspace.list_agents().await)
+    }
+
     /// Get or create an AgentRuntime for the given agent.
     ///
     /// This is an alternative entry point for lazy startup (US-06) when

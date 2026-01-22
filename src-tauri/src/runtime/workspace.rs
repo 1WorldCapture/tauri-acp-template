@@ -97,6 +97,18 @@ impl WorkspaceRuntime {
         Ok(record.to_summary(&self.workspace_id))
     }
 
+    /// Lists all agents within this workspace.
+    ///
+    /// # Returns
+    /// * `Vec<AgentSummary>` - List of all agent summaries
+    pub async fn list_agents(&self) -> Vec<AgentSummary> {
+        let records = self.agent_registry.list_agents().await;
+        records
+            .into_iter()
+            .map(|r| r.to_summary(&self.workspace_id))
+            .collect()
+    }
+
     /// Get or create an AgentRuntime for the given agent.
     ///
     /// This is called during lazy startup (US-06) when the first prompt is sent.

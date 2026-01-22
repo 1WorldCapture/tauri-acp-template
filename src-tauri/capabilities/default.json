@@ -33,6 +33,8 @@
     "allow-workspace-list",
     "allow-workspace-delete",
     "allow-workspace-set-focus",
-    "allow-workspace-get-focus"
+    "allow-workspace-get-focus",
+    "allow-agent-create",
+    "allow-agent-list"
   ]
 }

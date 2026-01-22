@@ -17,6 +17,13 @@ async fn agent_create_inner(
 ) -> Result<AgentSummary, ApiError> {
     log::info!("agent_create: workspace={workspace_id}, plugin={plugin_id}");
 
+    // Validate workspace_id is not empty
+    if workspace_id.trim().is_empty() {
+        return Err(ApiError::InvalidInput {
+            message: "Workspace ID cannot be empty".to_string(),
+        });
+    }
+
     workspace_manager
         .create_agent(workspace_id, plugin_id, display_name)
         .await
@@ -44,6 +51,41 @@ pub async fn agent_create(
     display_name: Option<String>,
 ) -> Result<AgentSummary, ApiError> {
     agent_create_inner(&workspace_manager, workspace_id, plugin_id, display_name).await
+}
+
+async fn agent_list_inner(
+    workspace_manager: &WorkspaceManager,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<AgentSummary>, ApiError> {
+    log::info!("agent_list: workspace={workspace_id}");
+
+    // Validate workspace_id is not empty
+    if workspace_id.trim().is_empty() {
+        return Err(ApiError::InvalidInput {
+            message: "Workspace ID cannot be empty".to_string(),
+        });
+    }
+
+    workspace_manager.list_agents(workspace_id).await
+}
+
+/// Lists all agents within a workspace.
+///
+/// # Arguments
+/// * `workspace_id` - ID of the workspace to list agents from
+///
+/// # Returns
+/// * `Vec<AgentSummary>` - List of all agent summaries
+///
+/// # Errors
+/// * `ApiError::WorkspaceNotFound` - If the workspace does not exist
+#[tauri::command]
+#[specta::specta]
+pub async fn agent_list(
+    workspace_manager: State<'_, Arc<WorkspaceManager>>,
+    workspace_id: WorkspaceId,
+) -> Result<Vec<AgentSummary>, ApiError> {
+    agent_list_inner(&workspace_manager, workspace_id).await
 }
 
 #[cfg(test)]

@@ -348,6 +348,15 @@ impl AgentRegistry {
         }
     }
 
+    /// Lists all agents in the registry.
+    ///
+    /// # Returns
+    /// * `Vec<AgentRecord>` - List of all agent records
+    pub async fn list_agents(&self) -> Vec<AgentRecord> {
+        let agents = self.agents.lock().await;
+        agents.values().cloned().collect()
+    }
+
     /// Creates a new agent entity in the registry.
     ///
     /// # Arguments

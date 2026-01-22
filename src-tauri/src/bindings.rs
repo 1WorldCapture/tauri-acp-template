@@ -28,6 +28,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
         plugins::plugin_install,
         permissions::permission_respond,
         agents::agent_create,
+        agents::agent_list,
         chat::chat_send_prompt,
         chat::chat_stop_turn,
         terminal::terminal_kill,
