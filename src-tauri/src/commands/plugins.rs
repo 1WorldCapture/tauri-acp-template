@@ -85,5 +85,8 @@ pub async fn plugin_install(
     log::info!("plugin_install called: plugin_id={plugin_id}, version={version:?}");
 
     // Use .inner() to get &Arc<PluginInstaller> for the arbitrary self type receiver
-    plugin_installer.inner().start_install(plugin_id, version).await
+    plugin_installer
+        .inner()
+        .start_install(plugin_id, version)
+        .await
 }

@@ -28,6 +28,11 @@
     "allow-chat-stop-turn",
     "allow-plugin-get-status",
     "allow-plugin-install",
-    "allow-permission-respond"
+    "allow-permission-respond",
+    "allow-workspace-create",
+    "allow-workspace-list",
+    "allow-workspace-delete",
+    "allow-workspace-set-focus",
+    "allow-workspace-get-focus"
   ]
 }

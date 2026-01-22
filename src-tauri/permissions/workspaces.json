@@ -1,0 +1,39 @@
+{
+  "permission": [
+    {
+      "identifier": "allow-workspace-create",
+      "description": "Allows the workspace_create command.",
+      "commands": {
+        "allow": ["workspace_create"]
+      }
+    },
+    {
+      "identifier": "allow-workspace-list",
+      "description": "Allows the workspace_list command.",
+      "commands": {
+        "allow": ["workspace_list"]
+      }
+    },
+    {
+      "identifier": "allow-workspace-delete",
+      "description": "Allows the workspace_delete command.",
+      "commands": {
+        "allow": ["workspace_delete"]
+      }
+    },
+    {
+      "identifier": "allow-workspace-set-focus",
+      "description": "Allows the workspace_set_focus command.",
+      "commands": {
+        "allow": ["workspace_set_focus"]
+      }
+    },
+    {
+      "identifier": "allow-workspace-get-focus",
+      "description": "Allows the workspace_get_focus command.",
+      "commands": {
+        "allow": ["workspace_get_focus"]
+      }
+    }
+  ]
+}

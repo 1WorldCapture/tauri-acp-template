@@ -20,6 +20,8 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
         quick_pane::get_default_quick_pane_shortcut,
         quick_pane::update_quick_pane_shortcut,
         workspaces::workspace_create,
+        workspaces::workspace_list,
+        workspaces::workspace_delete,
         workspaces::workspace_set_focus,
         workspaces::workspace_get_focus,
         plugins::plugin_get_status,

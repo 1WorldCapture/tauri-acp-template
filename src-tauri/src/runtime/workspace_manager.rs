@@ -126,6 +126,65 @@ impl WorkspaceManager {
         focused.clone()
     }
 
+    /// Lists all workspaces with their summaries.
+    ///
+    /// # Returns
+    /// * `Vec<WorkspaceSummary>` - List of workspace summaries, sorted by creation time (newest first)
+    pub async fn list_workspaces(&self) -> Vec<WorkspaceSummary> {
+        let workspaces = self.workspaces.lock().await;
+        let mut summaries: Vec<WorkspaceSummary> = workspaces
+            .values()
+            .map(|runtime| runtime.summary())
+            .collect();
+        // Sort by created_at_ms descending (newest first)
+        summaries.sort_by(|a, b| {
+            b.created_at_ms
+                .partial_cmp(&a.created_at_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        summaries
+    }
+
+    /// Deletes a workspace by ID.
+    ///
+    /// # Arguments
+    /// * `workspace_id` - ID of the workspace to delete
+    ///
+    /// # Returns
+    /// * `Ok(())` - Workspace was deleted successfully
+    /// * `Err(ApiError::InvalidInput)` - If workspace_id is empty
+    /// * `Err(ApiError::WorkspaceNotFound)` - If workspace does not exist
+    pub async fn delete_workspace(&self, workspace_id: &WorkspaceId) -> Result<(), ApiError> {
+        if workspace_id.trim().is_empty() {
+            return Err(ApiError::InvalidInput {
+                message: "Workspace ID cannot be empty".to_string(),
+            });
+        }
+
+        // Remove from map
+        let removed = {
+            let mut workspaces = self.workspaces.lock().await;
+            workspaces.remove(workspace_id)
+        };
+
+        if removed.is_none() {
+            return Err(ApiError::WorkspaceNotFound {
+                workspace_id: workspace_id.clone(),
+            });
+        }
+
+        // Clear focus if this was the focused workspace
+        {
+            let mut focused = self.focused_workspace_id.lock().await;
+            if focused.as_ref() == Some(workspace_id) {
+                *focused = None;
+            }
+        }
+
+        log::info!("Workspace deleted: {workspace_id}");
+        Ok(())
+    }
+
     /// Gets a workspace runtime by ID.
     ///
     /// # Arguments
@@ -409,5 +468,110 @@ mod tests {
             result,
             Err(ApiError::WorkspaceNotFound { workspace_id }) if workspace_id == "nonexistent-workspace-id"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_list_workspaces_empty() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager.list_workspaces().await;
+
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_workspaces_multiple() {
+        let manager = WorkspaceManager::new();
+        let temp_dir = env::temp_dir();
+
+        // Create multiple workspaces
+        let summary_a = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        let summary_b = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let list = manager.list_workspaces().await;
+
+        assert_eq!(list.len(), 2);
+        // Verify both workspaces are in the list
+        let ids: Vec<&str> = list.iter().map(|s| s.workspace_id.as_str()).collect();
+        assert!(ids.contains(&summary_a.workspace_id.as_str()));
+        assert!(ids.contains(&summary_b.workspace_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_delete_workspace_ok() {
+        let manager = WorkspaceManager::new();
+        let temp_dir = env::temp_dir();
+
+        // Create a workspace
+        let summary = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Delete it
+        let result = manager.delete_workspace(&summary.workspace_id).await;
+        assert!(result.is_ok());
+
+        // Verify it's gone
+        let list = manager.list_workspaces().await;
+        assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_delete_workspace_not_found() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager
+            .delete_workspace(&"nonexistent-workspace-id".to_string())
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ApiError::WorkspaceNotFound { workspace_id }) if workspace_id == "nonexistent-workspace-id"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_delete_workspace_empty_id() {
+        let manager = WorkspaceManager::new();
+
+        let result = manager.delete_workspace(&"".to_string()).await;
+
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_delete_workspace_clears_focus() {
+        let manager = WorkspaceManager::new();
+        let temp_dir = env::temp_dir();
+
+        // Create and focus a workspace
+        let summary = manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+        manager
+            .set_focus(summary.workspace_id.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            manager.get_focus().await,
+            Some(summary.workspace_id.clone())
+        );
+
+        // Delete it
+        manager
+            .delete_workspace(&summary.workspace_id)
+            .await
+            .unwrap();
+
+        // Focus should be cleared
+        assert!(manager.get_focus().await.is_none());
     }
 }

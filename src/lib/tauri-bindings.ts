@@ -28,6 +28,7 @@ export type {
   PermissionDecision,
   PluginStatus,
   RecoveryError,
+  WorkspaceSummary,
 } from './bindings'
 
 /**

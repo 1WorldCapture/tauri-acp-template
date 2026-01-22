@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { ProjectsSidebar } from '@/components/projects/ProjectsSidebar'
 
 interface LeftSideBarProps {
   children?: React.ReactNode
@@ -10,7 +11,7 @@ export function LeftSideBar({ children, className }: LeftSideBarProps) {
     <div
       className={cn('flex h-full flex-col border-r bg-background', className)}
     >
-      {children}
+      {children ?? <ProjectsSidebar />}
     </div>
   )
 }

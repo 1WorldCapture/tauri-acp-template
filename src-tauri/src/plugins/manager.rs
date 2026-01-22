@@ -313,23 +313,25 @@ impl PluginManager {
     /// Creates a package.json with a single dependency on the plugin's npm package.
     fn write_plugin_package_json(
         plugin_dir: &Path,
-        desc: &PluginDescriptor,
+        plugin_id: &str,
+        npm_package: &str,
         version: Option<&str>,
     ) -> Result<(), ApiError> {
         let version_spec = version.unwrap_or("latest");
         let package_json = serde_json::json!({
-            "name": format!("acp-plugin-{}", desc.plugin_id),
+            "name": format!("acp-plugin-{plugin_id}"),
             "version": "1.0.0",
             "private": true,
             "dependencies": {
-                desc.npm_package: version_spec
+                npm_package: version_spec
             }
         });
 
         let package_json_path = plugin_dir.join("package.json");
-        let content = serde_json::to_string_pretty(&package_json).map_err(|e| ApiError::IoError {
-            message: format!("Failed to serialize package.json: {e}"),
-        })?;
+        let content =
+            serde_json::to_string_pretty(&package_json).map_err(|e| ApiError::IoError {
+                message: format!("Failed to serialize package.json: {e}"),
+            })?;
 
         std::fs::write(&package_json_path, content).map_err(|e| ApiError::IoError {
             message: format!("Failed to write package.json: {e}"),
@@ -394,9 +396,7 @@ impl PluginManager {
             );
 
             return Err(ApiError::IoError {
-                message: format!(
-                    "npm install failed (exit code {exit_code}): {stderr_truncated}"
-                ),
+                message: format!("npm install failed (exit code {exit_code}): {stderr_truncated}"),
             });
         }
 
@@ -413,12 +413,13 @@ impl PluginManager {
     ) -> Result<String, ApiError> {
         // For scoped packages like @zed-industries/claude-code-acp,
         // the path is node_modules/@zed-industries/claude-code-acp/package.json
-        let package_path = plugin_dir.join("node_modules").join(npm_package).join("package.json");
+        let package_path = plugin_dir
+            .join("node_modules")
+            .join(npm_package)
+            .join("package.json");
 
         let content = std::fs::read_to_string(&package_path).map_err(|e| ApiError::IoError {
-            message: format!(
-                "Failed to read installed package version from {package_path:?}: {e}"
-            ),
+            message: format!("Failed to read installed package version from {package_path:?}: {e}"),
         })?;
 
         let package_json: serde_json::Value =
@@ -560,16 +561,12 @@ impl PluginManager {
         let version_for_package = version.clone();
         let desc_npm_package = desc.npm_package.to_string();
         let desc_plugin_id = desc.plugin_id.to_string();
-        let desc_bin_name = desc.bin_name.to_string();
 
         tokio::task::spawn_blocking(move || {
             Self::write_plugin_package_json(
                 &plugin_dir_for_package,
-                &PluginDescriptor {
-                    plugin_id: Box::leak(desc_plugin_id.into_boxed_str()),
-                    npm_package: Box::leak(desc_npm_package.into_boxed_str()),
-                    bin_name: Box::leak(desc_bin_name.into_boxed_str()),
-                },
+                &desc_plugin_id,
+                &desc_npm_package,
                 version_for_package.as_deref(),
             )
         })

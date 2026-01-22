@@ -48,6 +48,57 @@ pub async fn workspace_create(
     workspace_create_inner(&workspace_manager, root_dir).await
 }
 
+// --- List command ---
+
+async fn workspace_list_inner(
+    workspace_manager: &WorkspaceManager,
+) -> Result<Vec<WorkspaceSummary>, ApiError> {
+    log::debug!("workspace_list called");
+    Ok(workspace_manager.list_workspaces().await)
+}
+
+/// Lists all workspaces.
+///
+/// # Returns
+/// * `Vec<WorkspaceSummary>` - List of all workspace summaries, sorted by creation time (newest first)
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_list(
+    workspace_manager: State<'_, Arc<WorkspaceManager>>,
+) -> Result<Vec<WorkspaceSummary>, ApiError> {
+    workspace_list_inner(&workspace_manager).await
+}
+
+// --- Delete command ---
+
+async fn workspace_delete_inner(
+    workspace_manager: &WorkspaceManager,
+    workspace_id: WorkspaceId,
+) -> Result<(), ApiError> {
+    log::info!("workspace_delete called with workspace_id: {workspace_id}");
+    workspace_manager.delete_workspace(&workspace_id).await
+}
+
+/// Deletes a workspace by ID.
+///
+/// # Arguments
+/// * `workspace_id` - ID of the workspace to delete
+///
+/// # Returns
+/// * `()` - Workspace was deleted successfully
+///
+/// # Errors
+/// * `ApiError::InvalidInput` - If workspace_id is empty
+/// * `ApiError::WorkspaceNotFound` - If the workspace does not exist
+#[tauri::command]
+#[specta::specta]
+pub async fn workspace_delete(
+    workspace_manager: State<'_, Arc<WorkspaceManager>>,
+    workspace_id: WorkspaceId,
+) -> Result<(), ApiError> {
+    workspace_delete_inner(&workspace_manager, workspace_id).await
+}
+
 // --- Focus commands ---
 
 async fn workspace_set_focus_inner(
@@ -149,6 +200,56 @@ mod tests {
     async fn test_workspace_set_focus_unknown_workspace() {
         let workspace_manager = WorkspaceManager::new();
         let result = workspace_set_focus_inner(&workspace_manager, "unknown-id".to_string()).await;
+        assert!(matches!(result, Err(ApiError::WorkspaceNotFound { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_workspace_list_empty() {
+        let workspace_manager = WorkspaceManager::new();
+        let result = workspace_list_inner(&workspace_manager).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_workspace_list_with_workspaces() {
+        let workspace_manager = WorkspaceManager::new();
+        let temp_dir = std::env::temp_dir();
+
+        // Create a workspace
+        workspace_create_inner(&workspace_manager, temp_dir.to_str().unwrap().to_string())
+            .await
+            .unwrap();
+
+        let result = workspace_list_inner(&workspace_manager).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_workspace_delete_ok() {
+        let workspace_manager = WorkspaceManager::new();
+        let temp_dir = std::env::temp_dir();
+
+        // Create a workspace
+        let summary =
+            workspace_create_inner(&workspace_manager, temp_dir.to_str().unwrap().to_string())
+                .await
+                .unwrap();
+
+        // Delete it
+        let result = workspace_delete_inner(&workspace_manager, summary.workspace_id.clone()).await;
+        assert!(result.is_ok());
+
+        // Verify it's gone
+        let list = workspace_list_inner(&workspace_manager).await.unwrap();
+        assert!(list.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_workspace_delete_unknown() {
+        let workspace_manager = WorkspaceManager::new();
+        let result = workspace_delete_inner(&workspace_manager, "unknown-id".to_string()).await;
         assert!(matches!(result, Err(ApiError::WorkspaceNotFound { .. })));
     }
 }

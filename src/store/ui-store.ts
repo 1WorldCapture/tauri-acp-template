@@ -7,6 +7,8 @@ interface UIState {
   commandPaletteOpen: boolean
   preferencesOpen: boolean
   lastQuickPaneEntry: string | null
+  selectedProjectId: string | null
+  projectPendingDeleteId: string | null
 
   toggleLeftSidebar: () => void
   setLeftSidebarVisible: (visible: boolean) => void
@@ -17,6 +19,8 @@ interface UIState {
   togglePreferences: () => void
   setPreferencesOpen: (open: boolean) => void
   setLastQuickPaneEntry: (text: string) => void
+  setSelectedProjectId: (id: string | null) => void
+  setProjectPendingDeleteId: (id: string | null) => void
 }
 
 export const useUIStore = create<UIState>()(
@@ -27,6 +31,8 @@ export const useUIStore = create<UIState>()(
       commandPaletteOpen: false,
       preferencesOpen: false,
       lastQuickPaneEntry: null,
+      selectedProjectId: null,
+      projectPendingDeleteId: null,
 
       toggleLeftSidebar: () =>
         set(
@@ -78,6 +84,16 @@ export const useUIStore = create<UIState>()(
 
       setLastQuickPaneEntry: text =>
         set({ lastQuickPaneEntry: text }, undefined, 'setLastQuickPaneEntry'),
+
+      setSelectedProjectId: id =>
+        set({ selectedProjectId: id }, undefined, 'setSelectedProjectId'),
+
+      setProjectPendingDeleteId: id =>
+        set(
+          { projectPendingDeleteId: id },
+          undefined,
+          'setProjectPendingDeleteId'
+        ),
     }),
     {
       name: 'ui-store',

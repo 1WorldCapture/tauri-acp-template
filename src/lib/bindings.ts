@@ -167,6 +167,41 @@ async workspaceCreate(rootDir: string) : Promise<Result<WorkspaceSummary, ApiErr
 }
 },
 /**
+ * Lists all workspaces.
+ * 
+ * # Returns
+ * * `Vec<WorkspaceSummary>` - List of all workspace summaries, sorted by creation time (newest first)
+ */
+async workspaceList() : Promise<Result<WorkspaceSummary[], ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("workspace_list") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Deletes a workspace by ID.
+ * 
+ * # Arguments
+ * * `workspace_id` - ID of the workspace to delete
+ * 
+ * # Returns
+ * * `()` - Workspace was deleted successfully
+ * 
+ * # Errors
+ * * `ApiError::InvalidInput` - If workspace_id is empty
+ * * `ApiError::WorkspaceNotFound` - If the workspace does not exist
+ */
+async workspaceDelete(workspaceId: string) : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("workspace_delete", { workspaceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Sets the currently focused workspace.
  * 
  * # Arguments
