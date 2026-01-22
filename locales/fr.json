@@ -17,6 +17,22 @@
   "preferences.general": "Général",
   "preferences.appearance": "Apparence",
   "preferences.advanced": "Avancé",
+  "preferences.providers": "Fournisseurs",
+
+  "preferences.providers.title": "Fournisseurs IA",
+  "preferences.providers.description": "Gérer les plugins de fournisseurs IA pour l'intégration des agents",
+  "preferences.providers.claudeCode.description": "CLI Claude Code d'Anthropic pour le développement assisté par IA",
+  "preferences.providers.codex.description": "CLI Codex d'OpenAI pour la génération et la complétion de code",
+  "preferences.providers.status.installed": "Installé",
+  "preferences.providers.status.notInstalled": "Non installé",
+  "preferences.providers.status.version": "v{{version}}",
+  "preferences.providers.action.install": "Installer",
+  "preferences.providers.action.installed": "Installé",
+  "preferences.providers.action.installing": "Installation",
+  "preferences.providers.permission.title": "Installer le fournisseur",
+  "preferences.providers.permission.description": "Voulez-vous installer {{providerName}} ? Cela téléchargera et configurera l'outil CLI.",
+  "preferences.providers.permission.allow": "Installer",
+  "preferences.providers.permission.deny": "Annuler",
 
   "preferences.general.keyboardShortcuts": "Raccourcis clavier",
   "preferences.general.quickPaneShortcut": "Raccourci du panneau rapide",
@@ -116,5 +132,7 @@
   "toast.error.windowMinimizeFailed": "Échec de la réduction de la fenêtre : {{message}}",
   "toast.error.windowMaximizeFailed": "Échec du basculement de l'agrandissement : {{message}}",
   "toast.error.fullscreenEnterFailed": "Échec du passage en plein écran : {{message}}",
-  "toast.error.fullscreenExitFailed": "Échec de la sortie du plein écran : {{message}}"
+  "toast.error.fullscreenExitFailed": "Échec de la sortie du plein écran : {{message}}",
+  "toast.error.installFailed": "Échec de l'installation du fournisseur",
+  "toast.success.installComplete": "{{providerName}} installé avec succès"
 }

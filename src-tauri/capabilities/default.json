@@ -25,6 +25,9 @@
     "process:default",
     "os:default",
     "global-shortcut:default",
-    "allow-chat-stop-turn"
+    "allow-chat-stop-turn",
+    "allow-plugin-get-status",
+    "allow-plugin-install",
+    "allow-permission-respond"
   ]
 }

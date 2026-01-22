@@ -1,0 +1,11 @@
+{
+  "permission": [
+    {
+      "identifier": "allow-permission-respond",
+      "description": "Allows the permission_respond command.",
+      "commands": {
+        "allow": ["permission_respond"]
+      }
+    }
+  ]
+}

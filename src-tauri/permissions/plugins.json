@@ -1,0 +1,18 @@
+{
+  "permission": [
+    {
+      "identifier": "allow-plugin-get-status",
+      "description": "Allows the plugin_get_status command.",
+      "commands": {
+        "allow": ["plugin_get_status"]
+      }
+    },
+    {
+      "identifier": "allow-plugin-install",
+      "description": "Allows the plugin_install command.",
+      "commands": {
+        "allow": ["plugin_install"]
+      }
+    }
+  ]
+}

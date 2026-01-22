@@ -17,6 +17,22 @@
   "preferences.general": "General",
   "preferences.appearance": "Appearance",
   "preferences.advanced": "Advanced",
+  "preferences.providers": "Providers",
+
+  "preferences.providers.title": "AI Providers",
+  "preferences.providers.description": "Manage AI provider plugins for agent integration",
+  "preferences.providers.claudeCode.description": "Anthropic's Claude Code CLI for AI-assisted development",
+  "preferences.providers.codex.description": "OpenAI's Codex CLI for code generation and completion",
+  "preferences.providers.status.installed": "Installed",
+  "preferences.providers.status.notInstalled": "Not installed",
+  "preferences.providers.status.version": "v{{version}}",
+  "preferences.providers.action.install": "Install",
+  "preferences.providers.action.installed": "Installed",
+  "preferences.providers.action.installing": "Installing",
+  "preferences.providers.permission.title": "Install Provider",
+  "preferences.providers.permission.description": "Do you want to install {{providerName}}? This will download and set up the CLI tool.",
+  "preferences.providers.permission.allow": "Install",
+  "preferences.providers.permission.deny": "Cancel",
 
   "preferences.general.keyboardShortcuts": "Keyboard Shortcuts",
   "preferences.general.quickPaneShortcut": "Quick Pane Shortcut",
@@ -116,5 +132,7 @@
   "toast.error.windowMinimizeFailed": "Failed to minimize window: {{message}}",
   "toast.error.windowMaximizeFailed": "Failed to toggle maximize: {{message}}",
   "toast.error.fullscreenEnterFailed": "Failed to enter fullscreen: {{message}}",
-  "toast.error.fullscreenExitFailed": "Failed to exit fullscreen: {{message}}"
+  "toast.error.fullscreenExitFailed": "Failed to exit fullscreen: {{message}}",
+  "toast.error.installFailed": "Failed to install provider",
+  "toast.success.installComplete": "{{providerName}} installed successfully"
 }

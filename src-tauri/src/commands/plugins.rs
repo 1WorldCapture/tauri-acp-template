@@ -84,5 +84,6 @@ pub async fn plugin_install(
 ) -> Result<OperationStarted, ApiError> {
     log::info!("plugin_install called: plugin_id={plugin_id}, version={version:?}");
 
-    plugin_installer.start_install(plugin_id, version).await
+    // Use .inner() to get &Arc<PluginInstaller> for the arbitrary self type receiver
+    plugin_installer.inner().start_install(plugin_id, version).await
 }
