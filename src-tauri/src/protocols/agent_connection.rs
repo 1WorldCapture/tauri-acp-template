@@ -14,7 +14,7 @@ use async_trait::async_trait;
 ///
 /// US-06: Only `shutdown()` is needed for lazy startup.
 /// US-07: Adds `send_prompt()` method for sending user prompts.
-/// US-12: Will add `cancel_turn()` method.
+/// US-12: Adds `cancel_turn()` method.
 #[async_trait]
 #[allow(dead_code)]
 pub trait AgentConnection: Send + Sync {
@@ -32,6 +32,18 @@ pub trait AgentConnection: Send + Sync {
     /// * `Ok(())` - Prompt sent successfully
     /// * `Err(ApiError)` - Protocol error, connection closed, etc.
     async fn send_prompt(&self, session_id: SessionId, prompt: String) -> Result<(), ApiError>;
+
+    /// Cancel the current turn for the given session.
+    ///
+    /// US-12: Signals the agent to stop the active turn (if any).
+    ///
+    /// # Arguments
+    /// * `session_id` - The session to cancel the current turn for
+    ///
+    /// # Returns
+    /// * `Ok(())` - Cancel request sent successfully
+    /// * `Err(ApiError)` - Protocol error, connection closed, etc.
+    async fn cancel_turn(&self, session_id: SessionId) -> Result<(), ApiError>;
 
     /// Shutdown the agent connection gracefully.
     ///

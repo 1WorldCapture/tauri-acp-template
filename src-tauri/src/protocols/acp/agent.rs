@@ -31,6 +31,8 @@ use crate::protocols::host::{
 
 /// JSON-RPC method name for sending prompts (US-07)
 const METHOD_SEND_PROMPT: &str = "session/prompt";
+/// JSON-RPC method name for canceling the current turn (US-12)
+const METHOD_CANCEL_TURN: &str = "session/cancel";
 
 /// JSON-RPC method name for session notifications (US-07)
 const METHOD_SESSION_NOTIFICATION: &str = "session/notification";
@@ -347,6 +349,50 @@ impl AgentConnection for AcpAgent {
             })?;
 
             log::debug!("Prompt sent successfully: session={session_id}");
+            Ok(())
+        } else {
+            Err(ApiError::ProtocolError {
+                message: "stdin not available".to_string(),
+            })
+        }
+    }
+
+    async fn cancel_turn(&self, session_id: SessionId) -> Result<(), ApiError> {
+        log::info!("Canceling turn for ACP session: {}", session_id);
+
+        let request = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": METHOD_CANCEL_TURN,
+            "params": {
+                "sessionId": session_id
+            }
+        });
+
+        let message = serde_json::to_string(&request).map_err(|e| ApiError::ProtocolError {
+            message: format!("Failed to serialize cancel request: {e}"),
+        })?;
+
+        let mut stdin_guard = self.stdin.lock().await;
+        if let Some(stdin) = stdin_guard.as_mut() {
+            stdin
+                .write_all(message.as_bytes())
+                .await
+                .map_err(|e| ApiError::IoError {
+                    message: format!("Failed to write to stdin: {e}"),
+                })?;
+
+            stdin
+                .write_all(b"\n")
+                .await
+                .map_err(|e| ApiError::IoError {
+                    message: format!("Failed to write newline: {e}"),
+                })?;
+
+            stdin.flush().await.map_err(|e| ApiError::IoError {
+                message: format!("Failed to flush stdin: {e}"),
+            })?;
+
+            log::debug!("Cancel request sent successfully: session={session_id}");
             Ok(())
         } else {
             Err(ApiError::ProtocolError {

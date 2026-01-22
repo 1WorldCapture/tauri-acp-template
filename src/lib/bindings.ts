@@ -347,6 +347,33 @@ async chatSendPrompt(workspaceId: string, agentId: string, prompt: string) : Pro
 }
 },
 /**
+ * Stop the current turn for a session.
+ * 
+ * US-12: Cancels the active turn for the specified session.
+ * 
+ * # Arguments
+ * * `workspace_id` - ID of the workspace containing the agent
+ * * `agent_id` - ID of the agent to stop
+ * * `session_id` - Session identifier to cancel the current turn for
+ * 
+ * # Returns
+ * * `()` - Stop request accepted
+ * 
+ * # Errors
+ * * `ApiError::InvalidInput` - If any ID is empty
+ * * `ApiError::WorkspaceNotFound` - If workspace doesn't exist
+ * * `ApiError::AgentNotFound` - If agent doesn't exist in workspace
+ * * `ApiError::ProtocolError` - If agent is not running or connection unavailable
+ */
+async chatStopTurn(workspaceId: string, agentId: string, sessionId: string) : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("chat_stop_turn", { workspaceId, agentId, sessionId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Stop a running terminal command by ID.
  * 
  * # Arguments

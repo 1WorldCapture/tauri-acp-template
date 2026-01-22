@@ -285,6 +285,47 @@ impl AgentRuntime {
         // Call the trait method to send prompt
         connection.send_prompt(session_id, prompt).await
     }
+
+    /// Stop the current turn for the given session.
+    ///
+    /// US-12: Cancels the active turn via the protocol connection.
+    /// The agent must already be started (call ensure_started first).
+    ///
+    /// # Arguments
+    /// * `session_id` - The session to cancel the current turn for
+    ///
+    /// # Returns
+    /// * `Ok(())` - Cancel request sent successfully
+    /// * `Err(ApiError::ProtocolError)` - If agent is not running or connection unavailable
+    /// * `Err(ApiError::IoError)` - If writing to the protocol fails
+    pub async fn stop_turn(self: &Arc<Self>, session_id: SessionId) -> Result<(), ApiError> {
+        // Ensure agent is running and the session matches
+        let current_session_id = {
+            let session_guard = self.session_id.lock().await;
+            session_guard
+                .clone()
+                .ok_or_else(|| ApiError::ProtocolError {
+                    message: "Agent not running".to_string(),
+                })?
+        };
+
+        if current_session_id != session_id {
+            return Err(ApiError::InvalidInput {
+                message: "Session ID does not match active session".to_string(),
+            });
+        }
+
+        // Get connection (fail if connection unavailable)
+        let connection = {
+            let conn_guard = self.connection.lock().await;
+            conn_guard.clone().ok_or_else(|| ApiError::ProtocolError {
+                message: "Agent connection not available".to_string(),
+            })?
+        };
+
+        // Call the trait method to cancel turn
+        connection.cancel_turn(session_id).await
+    }
 }
 
 /// Registry of agent entities within a single workspace.
@@ -432,6 +473,33 @@ impl Default for AgentRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use tokio::sync::Mutex as TokioMutex;
+
+    struct MockConnection {
+        canceled_session: Arc<TokioMutex<Option<SessionId>>>,
+    }
+
+    #[async_trait]
+    impl AgentConnection for MockConnection {
+        async fn send_prompt(
+            &self,
+            _session_id: SessionId,
+            _prompt: String,
+        ) -> Result<(), ApiError> {
+            Ok(())
+        }
+
+        async fn cancel_turn(&self, session_id: SessionId) -> Result<(), ApiError> {
+            let mut guard = self.canceled_session.lock().await;
+            *guard = Some(session_id);
+            Ok(())
+        }
+
+        async fn shutdown(&self) -> Result<(), ApiError> {
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn test_create_agent_valid() {
@@ -529,5 +597,75 @@ mod tests {
         assert_eq!(summary.workspace_id, "test-workspace-id");
         assert_eq!(summary.plugin_id, "claude-code");
         assert_eq!(summary.display_name, Some("Test Agent".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_agent_runtime_stop_turn_not_running() {
+        let runtime = AgentRuntime::new(
+            "agent-123".to_string(),
+            "workspace-123".to_string(),
+            "claude-code".to_string(),
+        );
+
+        let result = runtime.stop_turn("session-123".to_string()).await;
+        assert!(matches!(result, Err(ApiError::ProtocolError { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_agent_runtime_stop_turn_calls_cancel() {
+        let runtime = AgentRuntime::new(
+            "agent-123".to_string(),
+            "workspace-123".to_string(),
+            "claude-code".to_string(),
+        );
+
+        let canceled_session = Arc::new(TokioMutex::new(None));
+        let connection = Arc::new(MockConnection {
+            canceled_session: canceled_session.clone(),
+        });
+
+        {
+            let mut session_guard = runtime.session_id.lock().await;
+            *session_guard = Some("session-123".to_string());
+        }
+        {
+            let mut conn_guard = runtime.connection.lock().await;
+            *conn_guard = Some(connection);
+        }
+
+        let result = runtime.stop_turn("session-123".to_string()).await;
+        assert!(result.is_ok());
+
+        let canceled = canceled_session.lock().await;
+        assert_eq!(canceled.as_deref(), Some("session-123"));
+    }
+
+    #[tokio::test]
+    async fn test_agent_runtime_stop_turn_session_mismatch() {
+        let runtime = AgentRuntime::new(
+            "agent-123".to_string(),
+            "workspace-123".to_string(),
+            "claude-code".to_string(),
+        );
+
+        let canceled_session = Arc::new(TokioMutex::new(None));
+        let connection = Arc::new(MockConnection {
+            canceled_session: canceled_session.clone(),
+        });
+
+        {
+            let mut session_guard = runtime.session_id.lock().await;
+            *session_guard = Some("session-123".to_string());
+        }
+        {
+            let mut conn_guard = runtime.connection.lock().await;
+            *conn_guard = Some(connection);
+        }
+
+        let result = runtime.stop_turn("session-999".to_string()).await;
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+
+        let canceled = canceled_session.lock().await;
+        assert!(canceled.is_none());
     }
 }

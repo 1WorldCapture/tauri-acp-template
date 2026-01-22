@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tauri::{Manager, State};
 
-use crate::api::types::{AgentId, ApiError, SendPromptAck, WorkspaceId};
+use crate::api::types::{AgentId, ApiError, SendPromptAck, SessionId, WorkspaceId};
 use crate::plugins::manager::PluginManager;
 use crate::runtime::permissions::PermissionHub;
 use crate::runtime::workspace_manager::WorkspaceManager;
@@ -54,6 +54,38 @@ async fn chat_send_prompt_inner(
     log::debug!("Prompt sent: workspace={workspace_id}, agent={agent_id}, session={session_id}");
 
     Ok(SendPromptAck { session_id })
+}
+
+/// Inner function for testing without Tauri State wrapper.
+async fn chat_stop_turn_inner(
+    workspace_manager: &WorkspaceManager,
+    workspace_id: WorkspaceId,
+    agent_id: AgentId,
+    session_id: SessionId,
+) -> Result<(), ApiError> {
+    log::info!("chat_stop_turn: workspace={workspace_id}, agent={agent_id}, session={session_id}");
+
+    if workspace_id.trim().is_empty() {
+        return Err(ApiError::InvalidInput {
+            message: "Workspace ID cannot be empty".to_string(),
+        });
+    }
+
+    if agent_id.trim().is_empty() {
+        return Err(ApiError::InvalidInput {
+            message: "Agent ID cannot be empty".to_string(),
+        });
+    }
+
+    if session_id.trim().is_empty() {
+        return Err(ApiError::InvalidInput {
+            message: "Session ID cannot be empty".to_string(),
+        });
+    }
+
+    workspace_manager
+        .stop_turn(workspace_id, agent_id, session_id)
+        .await
 }
 
 /// Send a prompt to an agent, triggering lazy startup if needed.
@@ -104,6 +136,34 @@ pub async fn chat_send_prompt(
     .await
 }
 
+/// Stop the current turn for a session.
+///
+/// US-12: Cancels the active turn for the specified session.
+///
+/// # Arguments
+/// * `workspace_id` - ID of the workspace containing the agent
+/// * `agent_id` - ID of the agent to stop
+/// * `session_id` - Session identifier to cancel the current turn for
+///
+/// # Returns
+/// * `()` - Stop request accepted
+///
+/// # Errors
+/// * `ApiError::InvalidInput` - If any ID is empty
+/// * `ApiError::WorkspaceNotFound` - If workspace doesn't exist
+/// * `ApiError::AgentNotFound` - If agent doesn't exist in workspace
+/// * `ApiError::ProtocolError` - If agent is not running or connection unavailable
+#[tauri::command]
+#[specta::specta]
+pub async fn chat_stop_turn(
+    workspace_manager: State<'_, Arc<WorkspaceManager>>,
+    workspace_id: WorkspaceId,
+    agent_id: AgentId,
+    session_id: SessionId,
+) -> Result<(), ApiError> {
+    chat_stop_turn_inner(&workspace_manager, workspace_id, agent_id, session_id).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +204,110 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(ApiError::WorkspaceNotFound { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_chat_stop_turn_invalid_input_empty_workspace() {
+        let workspace_manager = WorkspaceManager::new();
+        let result = chat_stop_turn_inner(
+            &workspace_manager,
+            "".to_string(),
+            "agent-1".to_string(),
+            "session-1".to_string(),
+        )
+        .await;
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_chat_stop_turn_invalid_input_empty_agent() {
+        let workspace_manager = WorkspaceManager::new();
+        let result = chat_stop_turn_inner(
+            &workspace_manager,
+            "workspace-1".to_string(),
+            "   ".to_string(),
+            "session-1".to_string(),
+        )
+        .await;
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_chat_stop_turn_invalid_input_empty_session() {
+        let workspace_manager = WorkspaceManager::new();
+        let result = chat_stop_turn_inner(
+            &workspace_manager,
+            "workspace-1".to_string(),
+            "agent-1".to_string(),
+            " ".to_string(),
+        )
+        .await;
+        assert!(matches!(result, Err(ApiError::InvalidInput { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_chat_stop_turn_unknown_workspace() {
+        let workspace_manager = WorkspaceManager::new();
+        let result = chat_stop_turn_inner(
+            &workspace_manager,
+            "workspace-1".to_string(),
+            "agent-1".to_string(),
+            "session-1".to_string(),
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ApiError::WorkspaceNotFound { workspace_id }) if workspace_id == "workspace-1"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_chat_stop_turn_unknown_agent() {
+        let workspace_manager = WorkspaceManager::new();
+        let temp_dir = std::env::temp_dir();
+        let ws_summary = workspace_manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let result = chat_stop_turn_inner(
+            &workspace_manager,
+            ws_summary.workspace_id,
+            "unknown-agent".to_string(),
+            "session-1".to_string(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(ApiError::AgentNotFound { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_chat_stop_turn_agent_not_running() {
+        let workspace_manager = WorkspaceManager::new();
+        let temp_dir = std::env::temp_dir();
+        let ws_summary = workspace_manager
+            .create_workspace(temp_dir.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let agent_summary = workspace_manager
+            .create_agent(
+                ws_summary.workspace_id.clone(),
+                "claude-code".to_string(),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let result = chat_stop_turn_inner(
+            &workspace_manager,
+            ws_summary.workspace_id,
+            agent_summary.agent_id,
+            "session-1".to_string(),
+        )
+        .await;
+
+        assert!(matches!(result, Err(ApiError::ProtocolError { .. })));
     }
 }

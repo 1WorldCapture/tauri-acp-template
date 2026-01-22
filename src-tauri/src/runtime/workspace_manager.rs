@@ -9,7 +9,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::api::types::{AgentId, AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
+use crate::api::types::{
+    AgentId, AgentSummary, ApiError, SessionId, WorkspaceId, WorkspaceSummary,
+};
 use crate::runtime::agents::AgentRuntime;
 use crate::runtime::path::canonicalize_workspace_root;
 use crate::runtime::workspace::WorkspaceRuntime;
@@ -195,6 +197,19 @@ impl WorkspaceManager {
 
         // Delegate to workspace runtime
         workspace.ensure_agent_runtime(agent_id).await
+    }
+
+    /// Stop the current turn for a given agent/session in a workspace.
+    ///
+    /// US-12: Routes to workspace runtime for cancellation.
+    pub async fn stop_turn(
+        &self,
+        workspace_id: WorkspaceId,
+        agent_id: AgentId,
+        session_id: SessionId,
+    ) -> Result<(), ApiError> {
+        let workspace = self.get_workspace(&workspace_id).await?;
+        workspace.stop_turn(agent_id, session_id).await
     }
 }
 

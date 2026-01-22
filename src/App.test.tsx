@@ -1,8 +1,21 @@
 import { render, screen } from '@/test/test-utils'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import App from './App'
 
 // Tauri bindings are mocked globally in src/test/setup.ts
+
+vi.mock('./i18n/language-init', () => ({
+  initializeLanguage: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('./lib/menu', () => ({
+  buildAppMenu: vi.fn().mockResolvedValue(undefined),
+  setupMenuLanguageListener: vi.fn(),
+}))
+
+vi.mock('./lib/recovery', () => ({
+  cleanupOldFiles: vi.fn().mockResolvedValue(undefined),
+}))
 
 describe('App', () => {
   it('renders main window layout', () => {

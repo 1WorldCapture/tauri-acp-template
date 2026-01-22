@@ -10,7 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::sync::Arc;
 
-use crate::api::types::{AgentId, AgentSummary, ApiError, WorkspaceId, WorkspaceSummary};
+use crate::api::types::{
+    AgentId, AgentSummary, ApiError, SessionId, WorkspaceId, WorkspaceSummary,
+};
 use crate::runtime::agents::{AgentRegistry, AgentRuntime};
 use crate::runtime::fs::FsManager;
 use crate::runtime::terminal::TerminalManager;
@@ -113,6 +115,18 @@ impl WorkspaceRuntime {
         self.agent_registry
             .ensure_runtime(self.workspace_id.clone(), agent_id)
             .await
+    }
+
+    /// Stop the current turn for a given agent/session.
+    ///
+    /// US-12: Routes to the agent runtime to cancel the current turn.
+    pub async fn stop_turn(
+        &self,
+        agent_id: AgentId,
+        session_id: SessionId,
+    ) -> Result<(), ApiError> {
+        let agent_runtime = self.ensure_agent_runtime(agent_id).await?;
+        agent_runtime.stop_turn(session_id).await
     }
 
     /// Get the workspace ID.

@@ -1,0 +1,11 @@
+{
+  "permission": [
+    {
+      "identifier": "allow-chat-stop-turn",
+      "description": "Allows the chat_stop_turn command.",
+      "commands": {
+        "allow": ["chat_stop_turn"]
+      }
+    }
+  ]
+}
