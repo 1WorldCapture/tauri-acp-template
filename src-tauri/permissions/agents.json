@@ -13,6 +13,13 @@
       "commands": {
         "allow": ["agent_list"]
       }
+    },
+    {
+      "identifier": "allow-chat-send-prompt",
+      "description": "Allows the chat_send_prompt command.",
+      "commands": {
+        "allow": ["chat_send_prompt"]
+      }
     }
   ]
 }

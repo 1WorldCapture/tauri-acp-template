@@ -173,7 +173,7 @@ impl AgentRuntime {
         host.set_status(AgentRuntimeStatus::Starting);
 
         // Resolve plugin binary
-        let plugin_command = match plugin_manager.resolve_bin(self.plugin_id.clone()).await {
+        let mut plugin_command = match plugin_manager.resolve_bin(self.plugin_id.clone()).await {
             Ok(cmd) => cmd,
             Err(e) => {
                 log::error!(
@@ -190,6 +190,52 @@ impl AgentRuntime {
                 return Err(e);
             }
         };
+
+        // Pass essential environment variables to the child process
+        // These may not be inherited if the app is launched from Finder/GUI
+        let essential_env_vars = [
+            // System paths (Claude Code needs these to find config files)
+            "HOME",
+            "USER",
+            "PATH",
+            "SHELL",
+            "TMPDIR",
+            // XDG specification paths (Linux/macOS config file locations)
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+            // Anthropic-specific variables
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_AUTH_TOKEN",
+        ];
+
+        for var_name in essential_env_vars {
+            // Only add if not already set and exists in parent env
+            let already_set = plugin_command.env.iter().any(|(k, _)| k == var_name);
+            if !already_set {
+                if let Ok(value) = std::env::var(var_name) {
+                    // Show full value for debugging (TODO: redact in production)
+                    log::debug!("Passing env var to adapter: {}={}", var_name, value);
+                    plugin_command.env.push((var_name.to_string(), value));
+                }
+            }
+        }
+
+        log::debug!(
+            "Adapter process environment prepared: {} variables total",
+            plugin_command.env.len()
+        );
+
+        // Log environment variable names (not values) for debugging
+        log::debug!(
+            "Adapter env vars: {:?}",
+            plugin_command
+                .env
+                .iter()
+                .map(|(k, _)| k)
+                .collect::<Vec<_>>()
+        );
 
         log::info!(
             "Starting agent: agent={}, plugin={}, bin={:?}",

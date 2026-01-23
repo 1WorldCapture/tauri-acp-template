@@ -227,6 +227,11 @@ pub struct AcpSessionUpdateEvent {
 ///
 /// Variants are inspired by Zed's SessionUpdate enum but kept flexible
 /// for compatibility with various ACP adapters.
+///
+/// Field names match Claude Code ACP adapter format:
+/// - agentMessageChunk: { content: [...] }
+/// - availableCommandsUpdate: { availableCommands: [...] }
+/// - toolCall: { toolCall: {...} } or inline fields
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum AcpSessionUpdate {
@@ -237,17 +242,46 @@ pub enum AcpSessionUpdate {
     /// Agent thought/reasoning chunk
     AgentThoughtChunk { content: serde_json::Value },
     /// Tool call initiated
-    ToolCall { data: serde_json::Value },
+    #[serde(rename_all = "camelCase")]
+    ToolCall {
+        #[serde(alias = "data", alias = "toolCall")]
+        tool_call: serde_json::Value,
+    },
     /// Tool call progress update
-    ToolCallUpdate { data: serde_json::Value },
+    #[serde(rename_all = "camelCase")]
+    ToolCallUpdate {
+        #[serde(alias = "data", alias = "toolCallUpdate")]
+        tool_call_update: serde_json::Value,
+    },
     /// Implementation plan
-    Plan { data: serde_json::Value },
+    Plan {
+        #[serde(alias = "data")]
+        plan: serde_json::Value,
+    },
     /// Available commands update
-    AvailableCommandsUpdate { data: serde_json::Value },
+    #[serde(rename_all = "camelCase")]
+    AvailableCommandsUpdate {
+        #[serde(alias = "data")]
+        available_commands: serde_json::Value,
+    },
     /// Current mode update
-    CurrentModeUpdate { data: serde_json::Value },
+    #[serde(rename_all = "camelCase")]
+    CurrentModeUpdate {
+        #[serde(alias = "data", alias = "currentMode")]
+        current_mode_id: serde_json::Value,
+    },
     /// Configuration option update
-    ConfigOptionUpdate { data: serde_json::Value },
+    #[serde(rename_all = "camelCase")]
+    ConfigOptionUpdate {
+        #[serde(alias = "data")]
+        config_options: serde_json::Value,
+    },
+    /// Turn completion signal with stop reason
+    #[serde(rename_all = "camelCase")]
+    TurnComplete {
+        #[serde(alias = "stopReason")]
+        stop_reason: serde_json::Value,
+    },
     /// Raw/unknown update (fallback for unrecognized formats)
     Raw { json: serde_json::Value },
 }

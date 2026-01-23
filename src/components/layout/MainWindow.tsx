@@ -13,6 +13,7 @@ import { Toaster } from 'sonner'
 import { useTheme } from '@/hooks/use-theme'
 import { useUIStore } from '@/store/ui-store'
 import { useMainWindowEventListeners } from '@/hooks/useMainWindowEventListeners'
+import { useAgentChatEvents } from '@/hooks/useAgentChatEvents'
 import { cn } from '@/lib/utils'
 
 /**
@@ -37,6 +38,9 @@ export function MainWindow() {
 
   // Set up global event listeners (keyboard shortcuts, etc.)
   useMainWindowEventListeners()
+
+  // Set up agent chat event listeners (status changes, streaming messages)
+  useAgentChatEvents()
 
   return (
     <div className="flex h-screen w-full flex-col overflow-hidden rounded-xl bg-background">

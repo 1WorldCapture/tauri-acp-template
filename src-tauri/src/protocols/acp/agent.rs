@@ -3,14 +3,14 @@
 //! This module implements the AgentConnection trait for ACP-compatible adapters.
 //! It handles:
 //! - Spawning the adapter process with STDIO pipes
-//! - ACP protocol lifecycle: initialize → new_session
+//! - ACP protocol lifecycle: initialize → session/new → session/prompt
+//! - Streaming session updates via notifications
 //!
-//! US-06: Only connection establishment is implemented.
-//! US-07: Adds JSON-RPC prompt sending and session update streaming.
-//!
-//! MVP Note: This is a simplified implementation demonstrating the architecture.
-//! The full ACP protocol with JSON-RPC framing will be integrated when the
-//! `agent_client_protocol` crate is available.
+//! US-06: Connection establishment with ACP handshake
+//! US-07: JSON-RPC prompt sending and session update streaming
+//! US-08: Permission requests from adapter
+//! US-10/11: File system read/write operations
+//! US-12: Turn cancellation
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -22,20 +22,34 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
+use agent_client_protocol as acp;
 use crate::api::types::{ApiError, PermissionSource, SessionId};
 use crate::plugins::manager::PluginCommand;
 use crate::protocols::agent_connection::AgentConnection;
 use crate::protocols::host::{
     AgentHost, FsReadTextFileRequest, FsWriteTextFileRequest, PermissionRequest, TerminalRunRequest,
 };
+use super::update_mapping::{
+    map_acp_update_to_api_update, parse_acp_session_notification_params,
+};
 
+/// JSON-RPC method name for initialize handshake
+/// Per ACP protocol schema: agent-client-protocol-schema/src/agent.rs
+const METHOD_INITIALIZE: &str = "initialize";
+/// JSON-RPC method name for session creation
+/// Per ACP protocol schema: agent-client-protocol-schema/src/agent.rs
+const METHOD_SESSION_NEW: &str = "session/new";
 /// JSON-RPC method name for sending prompts (US-07)
+/// Per ACP protocol schema: agent-client-protocol-schema/src/agent.rs
 const METHOD_SEND_PROMPT: &str = "session/prompt";
 /// JSON-RPC method name for canceling the current turn (US-12)
+/// Per ACP protocol schema: agent-client-protocol-schema/src/agent.rs
 const METHOD_CANCEL_TURN: &str = "session/cancel";
 
 /// JSON-RPC method name for session notifications (US-07)
 const METHOD_SESSION_NOTIFICATION: &str = "session/notification";
+/// Alias for session notifications (some adapters use this)
+const METHOD_SESSION_UPDATE: &str = "session/update";
 
 /// JSON-RPC method name for permission requests (US-08)
 const METHOD_REQUEST_PERMISSION: &str = "request_permission";
@@ -153,9 +167,6 @@ impl AcpAgent {
             message: "Failed to get stderr handle".to_string(),
         })?;
 
-        // Generate session ID (MVP: locally generated; real ACP returns this from new_session)
-        let session_id = Uuid::new_v4().to_string();
-
         // Spawn stderr reader task for logging
         let _stderr_task = tokio::spawn(async move {
             let reader = BufReader::new(stderr);
@@ -168,16 +179,24 @@ impl AcpAgent {
 
         let stdin = Arc::new(Mutex::new(Some(stdin)));
 
-        let request_semaphore = Arc::new(Semaphore::new(MAX_INFLIGHT_REQUESTS));
+        // Perform ACP handshake: initialize → session/new
+        // This must happen before spawning the stdout reader task
+        let mut stdout_reader = BufReader::new(stdout);
+        let session_id =
+            perform_acp_handshake(&stdin, &mut stdout_reader, &cwd).await?;
 
-        // Spawn stdout reader task - US-07: Parse JSON and handle session updates
+        log::info!("ACP handshake completed: session={session_id}");
+
+        // Now spawn stdout reader task for ongoing notifications/requests
+        let request_semaphore = Arc::new(Semaphore::new(MAX_INFLIGHT_REQUESTS));
         let host_for_stdout = host.clone();
         let session_id_for_stdout = session_id.clone();
         let stdin_for_stdout = stdin.clone();
         let semaphore_for_stdout = request_semaphore.clone();
+
+        // Convert stdout_reader back to lines iterator for the task
         let _stdout_task = tokio::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
+            let mut lines = stdout_reader.lines();
 
             while let Ok(Some(line)) = lines.next_line().await {
                 // Try to parse as JSON
@@ -191,39 +210,38 @@ impl AcpAgent {
 
                         if let Some(method) = method {
                             if id.is_none() {
-                                if method == METHOD_SESSION_NOTIFICATION {
-                                    // Parse params as AcpSessionUpdate
-                                    if let Some(params) = json.get("params") {
-                                        // Try to extract sessionId from the notification payload
-                                        // Fall back to locally stored session_id if not present
-                                        let notification_session_id = params
-                                            .get("sessionId")
-                                            .and_then(|s| s.as_str())
-                                            .map(|s| s.to_string())
-                                            .unwrap_or_else(|| session_id_for_stdout.clone());
-
-                                        match serde_json::from_value::<
-                                            crate::api::types::AcpSessionUpdate,
-                                        >(
-                                            params.clone()
+                                // Handle session notifications (both method names for compatibility)
+                                if method == METHOD_SESSION_NOTIFICATION
+                                    || method == METHOD_SESSION_UPDATE
+                                {
+                                    if let Some(params) = json.get("params").cloned() {
+                                        match parse_acp_session_notification_params(
+                                            params.clone(),
+                                            &session_id_for_stdout,
                                         ) {
-                                            Ok(update) => {
+                                            Ok((notification_session_id, update)) => {
+                                                let api_update =
+                                                    map_acp_update_to_api_update(update);
                                                 host_for_stdout.on_session_update(
-                                                    notification_session_id.clone(),
-                                                    update,
+                                                    notification_session_id,
+                                                    api_update,
                                                 );
                                             }
                                             Err(e) => {
-                                                // Parsing failed, wrap as Raw
+                                                let raw_session_id = extract_string(
+                                                    &params,
+                                                    &["sessionId", "session_id"],
+                                                )
+                                                .unwrap_or_else(|| session_id_for_stdout.clone());
                                                 log::debug!(
-                                                    "Failed to parse session update, using Raw: {e}"
+                                                    "Failed to parse ACP session update, using Raw: {e}"
                                                 );
                                                 let raw_update =
                                                     crate::api::types::AcpSessionUpdate::Raw {
-                                                        json: params.clone(),
+                                                        json: params,
                                                     };
                                                 host_for_stdout.on_session_update(
-                                                    notification_session_id,
+                                                    raw_session_id,
                                                     raw_update,
                                                 );
                                             }
@@ -263,6 +281,37 @@ impl AcpAgent {
                                 });
                             }
                         } else if json.get("id").is_some() {
+                            if let Some(result) = json.get("result") {
+                                let stop_reason_value = result
+                                    .get("stopReason")
+                                    .or_else(|| result.get("stop_reason"))
+                                    .cloned();
+                                if let Some(stop_reason_value) = stop_reason_value {
+                                    let stop_reason = match serde_json::from_value::<
+                                        acp::PromptResponse,
+                                    >(result.clone())
+                                    {
+                                        Ok(prompt_response) => serde_json::to_value(
+                                            prompt_response.stop_reason,
+                                        )
+                                        .unwrap_or(stop_reason_value.clone()),
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Failed to parse prompt response stopReason: {e}"
+                                            );
+                                            stop_reason_value
+                                        }
+                                    };
+                                    let update =
+                                        crate::api::types::AcpSessionUpdate::TurnComplete {
+                                            stop_reason,
+                                        };
+                                    host_for_stdout.on_session_update(
+                                        session_id_for_stdout.clone(),
+                                        update,
+                                    );
+                                }
+                            }
                             // It's a response (has "id" field), log for now
                             log::debug!("[acp stdout response] {line}");
                         } else {
@@ -284,13 +333,7 @@ impl AcpAgent {
             host_for_stdout.on_connection_lost();
         });
 
-        // MVP: Skip actual JSON-RPC initialize/new_session for now
-        // In full implementation (US-07+):
-        // 1. Send initialize request with capabilities
-        // 2. Wait for initialize response
-        // 3. Send new_session request with cwd
-        // 4. Wait for new_session response with session_id
-        log::info!("ACP connection established (MVP mode): session={session_id}");
+        log::info!("ACP connection established: session={session_id}");
 
         let agent = Arc::new(Self {
             child: Mutex::new(Some(child)),
@@ -312,14 +355,22 @@ impl AgentConnection for AcpAgent {
             prompt.len()
         );
 
-        // Construct JSON-RPC request (simplified, no id tracking)
-        // Note: Using camelCase for params to match Rust/TS conventions and ACP spec
+        // Generate a unique request ID for JSON-RPC
+        let request_id = Uuid::new_v4().to_string();
+
+        // Construct JSON-RPC request with proper ACP PromptRequest structure
+        // ACP expects: { sessionId: string, prompt: ContentBlock[] }
+        // where ContentBlock can be { type: "text", text: string } etc.
         let request = serde_json::json!({
             "jsonrpc": "2.0",
+            "id": request_id,
             "method": METHOD_SEND_PROMPT,
             "params": {
                 "sessionId": session_id,
-                "text": prompt
+                "prompt": [{
+                    "type": "text",
+                    "text": prompt
+                }]
             }
         });
 
@@ -638,5 +689,187 @@ async fn send_jsonrpc_response(
         Err(ApiError::ProtocolError {
             message: "stdin not available".to_string(),
         })
+    }
+}
+
+/// Perform ACP handshake: initialize → session/new
+///
+/// This sends the required ACP protocol messages to establish a session:
+/// 1. `initialize` - Handshake with protocol version and capabilities
+/// 2. `session/new` - Create a new session with workspace cwd
+///
+/// Returns the adapter-issued session ID.
+async fn perform_acp_handshake(
+    stdin: &Arc<Mutex<Option<tokio::process::ChildStdin>>>,
+    stdout: &mut BufReader<tokio::process::ChildStdout>,
+    cwd: &PathBuf,
+) -> Result<SessionId, ApiError> {
+    // Step 1: Send initialize request
+    let init_id = Uuid::new_v4().to_string();
+    let init_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": init_id,
+        "method": METHOD_INITIALIZE,
+        "params": {
+            "protocolVersion": 1,
+            "clientCapabilities": {
+                "sampling": {},
+                "roots": { "listChanged": false },
+                "prompts": {},
+                "tools": {},
+                "logging": {}
+            },
+            "clientInfo": {
+                "name": "tauri-acp-template",
+                "version": env!("CARGO_PKG_VERSION")
+            }
+        }
+    });
+
+    write_jsonrpc_request(stdin, &init_request).await?;
+    log::debug!("Sent initialize request: id={init_id}");
+
+    // Wait for initialize response
+    let init_response = read_jsonrpc_response(stdout, &init_id).await?;
+    log::debug!("Received initialize response: {init_response}");
+
+    // Check for error in response
+    if let Some(error) = init_response.get("error") {
+        let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
+        let message = error
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Unknown error");
+        return Err(ApiError::ProtocolError {
+            message: format!("Initialize failed: code={code}, message={message}"),
+        });
+    }
+
+    // Step 2: Send session/new request
+    let session_id_request = Uuid::new_v4().to_string();
+    let cwd_str = cwd.to_string_lossy().to_string();
+    let session_new_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": session_id_request,
+        "method": METHOD_SESSION_NEW,
+        "params": {
+            "cwd": cwd_str,
+            "mcpServers": []
+        }
+    });
+
+    write_jsonrpc_request(stdin, &session_new_request).await?;
+    log::debug!("Sent session/new request: id={session_id_request}, cwd={cwd_str}");
+
+    // Wait for session/new response
+    let session_response = read_jsonrpc_response(stdout, &session_id_request).await?;
+    log::debug!("Received session/new response: {session_response}");
+
+    // Check for error in response
+    if let Some(error) = session_response.get("error") {
+        let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
+        let message = error
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Unknown error");
+        return Err(ApiError::ProtocolError {
+            message: format!("Session creation failed: code={code}, message={message}"),
+        });
+    }
+
+    // Extract session ID from response
+    let session_id = session_response
+        .get("result")
+        .and_then(|r| r.get("sessionId"))
+        .and_then(|s| s.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| ApiError::ProtocolError {
+            message: "session/new response missing sessionId".to_string(),
+        })?;
+
+    Ok(session_id)
+}
+
+/// Write a JSON-RPC request to stdin (newline-delimited JSON)
+async fn write_jsonrpc_request(
+    stdin: &Arc<Mutex<Option<tokio::process::ChildStdin>>>,
+    request: &serde_json::Value,
+) -> Result<(), ApiError> {
+    let message = serde_json::to_string(request).map_err(|e| ApiError::ProtocolError {
+        message: format!("Failed to serialize JSON-RPC request: {e}"),
+    })?;
+
+    let mut stdin_guard = stdin.lock().await;
+    if let Some(stdin) = stdin_guard.as_mut() {
+        stdin
+            .write_all(message.as_bytes())
+            .await
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to write to stdin: {e}"),
+            })?;
+        stdin
+            .write_all(b"\n")
+            .await
+            .map_err(|e| ApiError::IoError {
+                message: format!("Failed to write newline: {e}"),
+            })?;
+        stdin.flush().await.map_err(|e| ApiError::IoError {
+            message: format!("Failed to flush stdin: {e}"),
+        })?;
+        Ok(())
+    } else {
+        Err(ApiError::ProtocolError {
+            message: "stdin not available".to_string(),
+        })
+    }
+}
+
+/// Read JSON-RPC responses from stdout until we find one with the expected ID.
+/// Non-matching lines (notifications, other responses) are logged and skipped.
+async fn read_jsonrpc_response(
+    stdout: &mut BufReader<tokio::process::ChildStdout>,
+    expected_id: &str,
+) -> Result<serde_json::Value, ApiError> {
+    let mut lines = stdout.lines();
+
+    loop {
+        let line = lines.next_line().await.map_err(|e| ApiError::IoError {
+            message: format!("Failed to read from stdout: {e}"),
+        })?;
+
+        let line = line.ok_or_else(|| ApiError::ProtocolError {
+            message: "Adapter stdout closed unexpectedly during handshake".to_string(),
+        })?;
+
+        // Try to parse as JSON
+        let json: serde_json::Value =
+            match serde_json::from_str(&line) {
+                Ok(j) => j,
+                Err(_) => {
+                    // Not JSON, likely debug output from adapter
+                    log::debug!("[handshake stdout] {line}");
+                    continue;
+                }
+            };
+
+        // Check if this is the response we're waiting for
+        if let Some(id) = json.get("id") {
+            let id_str = match id {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Number(n) => n.to_string(),
+                _ => continue,
+            };
+
+            if id_str == expected_id {
+                return Ok(json);
+            }
+
+            // Different response ID - log and continue
+            log::debug!("[handshake] Unexpected response id={id_str}, waiting for {expected_id}");
+        } else {
+            // No ID - probably a notification, log and continue
+            let method = json.get("method").and_then(|m| m.as_str()).unwrap_or("unknown");
+            log::debug!("[handshake] Received notification: method={method}");
+        }
     }
 }

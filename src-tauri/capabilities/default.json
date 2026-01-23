@@ -35,6 +35,7 @@
     "allow-workspace-set-focus",
     "allow-workspace-get-focus",
     "allow-agent-create",
-    "allow-agent-list"
+    "allow-agent-list",
+    "allow-chat-send-prompt"
   ]
 }
