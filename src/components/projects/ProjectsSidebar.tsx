@@ -249,7 +249,9 @@ function ProjectCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" sideOffset={4}>
-              <DropdownMenuItem onClick={() => handleCreateAgent('claude-code')}>
+              <DropdownMenuItem
+                onClick={() => handleCreateAgent('claude-code')}
+              >
                 <Cloud className="size-4" />
                 <span>New Claude Agent</span>
               </DropdownMenuItem>
@@ -261,7 +263,12 @@ function ProjectCard({
           </DropdownMenu>
 
           {/* Delete button */}
-          <Button variant="ghost" size="icon-sm" className="size-6" onClick={onDelete}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-6"
+            onClick={onDelete}
+          >
             <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
           </Button>
         </div>

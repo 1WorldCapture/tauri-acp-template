@@ -9,10 +9,8 @@ pub fn parse_acp_session_notification_params(
 ) -> Result<(SessionId, acp::SessionUpdate), serde_json::Error> {
     match serde_json::from_value::<acp::SessionNotification>(params.clone()) {
         Ok(notification) => Ok((notification.session_id.to_string(), notification.update)),
-        Err(_) => {
-            serde_json::from_value::<acp::SessionUpdate>(params)
-                .map(|update| (fallback_session_id.clone(), update))
-        }
+        Err(_) => serde_json::from_value::<acp::SessionUpdate>(params)
+            .map(|update| (fallback_session_id.clone(), update)),
     }
 }
 
@@ -30,11 +28,9 @@ pub fn map_acp_update_to_api_update(update: acp::SessionUpdate) -> AcpSessionUpd
         acp::SessionUpdate::ToolCall(tool_call) => AcpSessionUpdate::ToolCall {
             tool_call: to_value_or_null(tool_call),
         },
-        acp::SessionUpdate::ToolCallUpdate(tool_call_update) => {
-            AcpSessionUpdate::ToolCallUpdate {
-                tool_call_update: to_value_or_null(tool_call_update),
-            }
-        }
+        acp::SessionUpdate::ToolCallUpdate(tool_call_update) => AcpSessionUpdate::ToolCallUpdate {
+            tool_call_update: to_value_or_null(tool_call_update),
+        },
         acp::SessionUpdate::Plan(plan) => AcpSessionUpdate::Plan {
             plan: to_value_or_null(plan),
         },
@@ -84,10 +80,9 @@ mod tests {
 
     #[test]
     fn test_parse_session_notification_params_fallback_update() {
-        let update =
-            acp::SessionUpdate::UserMessageChunk(acp::ContentChunk::new(
-                acp::ContentBlock::from("Hi"),
-            ));
+        let update = acp::SessionUpdate::UserMessageChunk(acp::ContentChunk::new(
+            acp::ContentBlock::from("Hi"),
+        ));
         let params = serde_json::to_value(update.clone()).expect("serialize update");
 
         let (session_id, parsed_update) =
@@ -111,7 +106,10 @@ mod tests {
 
         match mapped {
             AcpSessionUpdate::AgentMessageChunk { content } => {
-                assert_eq!(content, serde_json::json!({"type": "text", "text": "Hello"}));
+                assert_eq!(
+                    content,
+                    serde_json::json!({"type": "text", "text": "Hello"})
+                );
             }
             _ => panic!("Expected AgentMessageChunk"),
         }

@@ -21,7 +21,7 @@ describe('App', () => {
   it('renders main window layout', () => {
     render(<App />)
     expect(
-      screen.getByRole('heading', { name: /hello world/i })
+      screen.getByRole('heading', { name: /select a project to get started/i })
     ).toBeInTheDocument()
   })
 

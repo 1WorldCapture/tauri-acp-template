@@ -1,9 +1,11 @@
 # Investigation: ACP Claude Initialization Flow Comparison
 
 ## Summary
+
 Investigating why the Tauri ACP template shows authentication prompt during Claude Code ACP initialization, while Zed using the same plugin on the same machine doesn't require authentication.
 
 ## Symptoms
+
 - After successful `initialize` handshake, `session/new` completes successfully
 - Session ID received: `27b57109-db88-47cf-b0da-41ced9c7e01b`
 - Agent status changes to "started"
@@ -33,32 +35,38 @@ Investigating why the Tauri ACP template shows authentication prompt during Clau
 ## Hypotheses
 
 ### H1: Authentication State Not Being Read/Passed
+
 - Zed may be passing authentication tokens/credentials during initialization
 - Our implementation might not be reading or forwarding auth state
 
 ### H2: Session Update Parsing Issue
+
 - The parse error suggests we're receiving data but can't deserialize it properly
 - Message has `availableCommands` and `sessionUpdate` keys but missing `type` field
 - This could be a secondary symptom, not the root cause of auth prompt
 
 ### H3: Environment Variables or Configuration
+
 - Claude Code might check specific env vars that Zed sets
 - Working directory, HOME, or other environment context differences
 
 ### H4: Request Parameter Differences
+
 - `initialize` or `session/new` requests might differ between Zed and our implementation
 - Missing optional parameters that affect authentication flow
 
 ## Investigation Log
 
 ### [Initial] - Log Analysis
+
 **Hypothesis:** Understanding the exact failure point
-**Findings:** 
+**Findings:**
+
 - Handshake completes successfully
-- Session created successfully  
+- Session created successfully
 - Parse failure happens AFTER prompt is sent
-**Evidence:** Log timestamps show parse error after "Prompt sent successfully"
-**Conclusion:** Authentication prompt might be unrelated to parse error, or parse error prevents auth response handling
+  **Evidence:** Log timestamps show parse error after "Prompt sent successfully"
+  **Conclusion:** Authentication prompt might be unrelated to parse error, or parse error prevents auth response handling
 
 ## Investigation Findings
 
@@ -84,6 +92,7 @@ if let Ok(auth_token) = std::env::var("ANTHROPIC_AUTH_TOKEN") {
 ```
 
 **Finding 1: Limited Environment Variable Passing**
+
 - Tauri ONLY forwards `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`
 - Uses `.env_clear()` to start with a clean slate
 - Only adds these vars IF they exist in parent process
@@ -109,6 +118,7 @@ self.session_capabilities = Some(result.agent_capabilities.session_capabilities.
 ```
 
 **Finding 2: authMethods Ignored**
+
 - Initialize response contains `authMethods` array
 - Tauri receives it but NEVER stores or uses it
 - No authentication flow triggered based on this field
@@ -126,6 +136,7 @@ fn extract_session_update(
 ```
 
 **Finding 3: Session Update Parsing Too Strict**
+
 - Only handles `sessionUpdate` when it's a string type discriminator
 - Doesn't handle `sessionUpdate` as nested object with `type` field
 - Doesn't handle bare `availableCommands` arrays
@@ -145,18 +156,19 @@ impl LocalClaudeCode {
             project_env,
             cx,
         )?;
-        
+
         // Set default (empty) ANTHROPIC_API_KEY
         env.insert("ANTHROPIC_API_KEY".into(), "".into());
-        
+
         // Merge settings_env (can override ANTHROPIC_API_KEY)
         env.extend(settings_env.unwrap_or_default());
-        
+
         // Add extra_env overrides
         command.env.get_or_insert_default().extend(extra_env);
 ```
 
 **Finding 4: Zed's Comprehensive Environment**
+
 - Starts with full project/shell environment (NOT env_clear)
 - Adds ANTHROPIC_API_KEY with empty default
 - Merges user settings environment
@@ -180,6 +192,7 @@ Ok(Self {
 ```
 
 **Finding 5: Zed Stores and Uses authMethods**
+
 - authMethods from initialize response stored in `AcpConnection`
 - Exposed via `auth_methods()` method to UI
 - UI presents authentication options when needed
@@ -195,19 +208,20 @@ fn authenticate(&mut self, method_id: String, ...) {
             // Spawn terminal auth task
         }
     }
-    
+
     // Hardcoded Claude login
     if method_id == "claude-login" && self.login.is_some() {
         spawn_external_agent_login(self.login, ...);
         return;
     }
-    
+
     // Fallback to connection.authenticate()
     connection.authenticate(method_id, cx);
 }
 ```
 
 **Finding 6: Zed's Multi-Path Authentication**
+
 - Checks for terminal-based auth in metadata
 - Has hardcoded `"claude-login"` handler that runs `/login` command
 - Falls back to ACP authenticate RPC call
@@ -223,17 +237,17 @@ fn session_notification(&mut self, notification: SessionNotification, cx: &mut M
         SessionUpdate::ConfigOptionUpdate(update) => { /* cache */ }
         _ => {}
     }
-    
+
     // Handle terminal meta
     if let SessionUpdate::ToolCall { meta, ... } = &notification.update {
         if let Some(terminal_info) = &meta.terminal_info {
             // Create terminal
         }
     }
-    
+
     // Forward to thread
     thread.handle_session_update(notification.update.clone(), cx);
-    
+
     // Post-process: terminal output/exit
     if let SessionUpdate::ToolCallUpdate { meta, ... } = &notification.update {
         if let Some(output) = &meta.terminal_output { /* emit */ }
@@ -243,6 +257,7 @@ fn session_notification(&mut self, notification: SessionNotification, cx: &mut M
 ```
 
 **Finding 7: Zed's Robust Session Update Handling**
+
 - Pre-processes updates to maintain state caches
 - Extracts and handles terminal metadata
 - Forwards typed updates to thread model
@@ -300,6 +315,7 @@ fn session_notification(&mut self, notification: SessionNotification, cx: &mut M
 ### Fix 1: Environment Variable Handling (HIGH PRIORITY)
 
 **Option A: Preserve shell environment (like Zed)**
+
 ```rust
 // In src-tauri/src/runtime/agents.rs
 let mut cmd = Command::new(&command.path);
@@ -319,6 +335,7 @@ if let Ok(auth_token) = std::env::var("ANTHROPIC_AUTH_TOKEN") {
 ```
 
 **Option B: Build comprehensive environment**
+
 ```rust
 // Collect parent env
 let mut env: HashMap<String, String> = std::env::vars().collect();
@@ -336,12 +353,14 @@ cmd.envs(env);
 ```
 
 **Trade-offs:**
+
 - Option A: Simpler, matches Zed behavior, but exposes all env vars
 - Option B: More control, can restrict sensitive vars, but more code
 
 ### Fix 2: Implement authMethods Support (MEDIUM PRIORITY)
 
 **Step 1: Store authMethods**
+
 ```rust
 // In src-tauri/src/protocols/acp/agent.rs
 pub struct AcpAgent {
@@ -354,6 +373,7 @@ self.auth_methods = result.auth_methods.unwrap_or_default();
 ```
 
 **Step 2: Add authentication RPC**
+
 ```rust
 impl AcpAgent {
     pub async fn authenticate(&mut self, method_id: &str) -> Result<()> {
@@ -365,7 +385,7 @@ impl AcpAgent {
                 "methodId": method_id
             }
         });
-        
+
         self.send_request(request).await?;
         Ok(())
     }
@@ -373,6 +393,7 @@ impl AcpAgent {
 ```
 
 **Step 3: Add UI for authentication**
+
 - Emit `agent/auth_required` event with authMethods
 - Show authentication modal in React
 - Call `authenticate` command when user selects method

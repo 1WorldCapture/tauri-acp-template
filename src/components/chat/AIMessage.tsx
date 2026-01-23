@@ -49,7 +49,9 @@ interface AIMessageTextProps {
 }
 
 export function AIMessageText({ children, className }: AIMessageTextProps) {
-  return <p className={cn('text-[13px] leading-[1.6]', className)}>{children}</p>
+  return (
+    <p className={cn('text-[13px] leading-[1.6]', className)}>{children}</p>
+  )
 }
 
 interface AIMessageBulletsProps {

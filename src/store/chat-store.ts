@@ -12,8 +12,15 @@ export interface ChatMessage {
   role: ChatRole
   text: string
   createdAtMs: number
+  seq?: number
   streaming?: boolean
   error?: string
+}
+
+/** Optional metadata for message creation (for ordering from backend events) */
+interface MessageMeta {
+  createdAtMs?: number
+  seq?: number
 }
 
 export type AgentStatusLike =
@@ -63,16 +70,19 @@ interface ChatState {
   setSessionId: (key: ChatKey, sessionId: string) => void
 
   // Add a user message, returns the message ID
-  addUserMessage: (key: ChatKey, text: string) => string
+  addUserMessage: (key: ChatKey, text: string, meta?: MessageMeta) => string
 
   // Add a system message, returns the message ID
-  addSystemMessage: (key: ChatKey, text: string) => string
+  addSystemMessage: (key: ChatKey, text: string, meta?: MessageMeta) => string
 
   // Begin an assistant message (streaming), returns the message ID
   beginAssistantMessage: (key: ChatKey) => string
 
   // Append text to the pending assistant message
-  appendAssistantText: (key: ChatKey, chunk: string) => void
+  appendAssistantText: (key: ChatKey, chunk: string, meta?: MessageMeta) => void
+
+  // Split/complete the current assistant message segment (for timeline ordering)
+  splitAssistantMessage: (key: ChatKey) => void
 
   // Mark the pending assistant message as complete (not streaming)
   endAssistantStreaming: (key: ChatKey) => void
@@ -183,8 +193,11 @@ export const useChatStore = create<ChatState>()(
         )
       },
 
-      addUserMessage: (key, text) => {
+      addUserMessage: (key, text, meta) => {
         const id = generateId()
+        const createdAtMs = meta?.createdAtMs ?? Date.now()
+        const seq = meta?.seq
+
         set(
           state => {
             const conv = state.conversations[key]
@@ -193,7 +206,8 @@ export const useChatStore = create<ChatState>()(
               id,
               role: 'user',
               text,
-              createdAtMs: Date.now(),
+              createdAtMs,
+              ...(typeof seq === 'number' ? { seq } : {}),
             }
             return {
               conversations: {
@@ -211,8 +225,11 @@ export const useChatStore = create<ChatState>()(
         return id
       },
 
-      addSystemMessage: (key, text) => {
+      addSystemMessage: (key, text, meta) => {
         const id = generateId()
+        const createdAtMs = meta?.createdAtMs ?? Date.now()
+        const seq = meta?.seq
+
         set(
           state => {
             const conv = state.conversations[key]
@@ -221,7 +238,8 @@ export const useChatStore = create<ChatState>()(
               id,
               role: 'system',
               text,
-              createdAtMs: Date.now(),
+              createdAtMs,
+              ...(typeof seq === 'number' ? { seq } : {}),
             }
             return {
               conversations: {
@@ -269,11 +287,14 @@ export const useChatStore = create<ChatState>()(
         return id
       },
 
-      appendAssistantText: (key, chunk) => {
+      appendAssistantText: (key, chunk, meta) => {
         set(
           state => {
             const conv = state.conversations[key]
             if (!conv) return state
+
+            const createdAtMs = meta?.createdAtMs ?? Date.now()
+            const seq = meta?.seq
 
             let pendingId = conv.pendingAssistantMessageId
 
@@ -284,8 +305,9 @@ export const useChatStore = create<ChatState>()(
                 id: pendingId,
                 role: 'assistant',
                 text: chunk,
-                createdAtMs: Date.now(),
+                createdAtMs,
                 streaming: true,
+                ...(typeof seq === 'number' ? { seq } : {}),
               }
               return {
                 conversations: {
@@ -312,6 +334,57 @@ export const useChatStore = create<ChatState>()(
           },
           undefined,
           'appendAssistantText'
+        )
+      },
+
+      splitAssistantMessage: key => {
+        set(
+          state => {
+            const conv = state.conversations[key]
+            if (!conv || !conv.pendingAssistantMessageId) return state
+
+            const pendingId = conv.pendingAssistantMessageId
+            const pending = conv.messages.find(m => m.id === pendingId)
+
+            if (!pending) {
+              return {
+                conversations: {
+                  ...state.conversations,
+                  [key]: { ...conv, pendingAssistantMessageId: null },
+                },
+              }
+            }
+
+            // If it's an empty placeholder, drop it entirely
+            if (!pending.text) {
+              return {
+                conversations: {
+                  ...state.conversations,
+                  [key]: {
+                    ...conv,
+                    messages: conv.messages.filter(m => m.id !== pendingId),
+                    pendingAssistantMessageId: null,
+                  },
+                },
+              }
+            }
+
+            // Mark as complete (not streaming) and clear pending ID
+            return {
+              conversations: {
+                ...state.conversations,
+                [key]: {
+                  ...conv,
+                  messages: conv.messages.map(m =>
+                    m.id === pendingId ? { ...m, streaming: false } : m
+                  ),
+                  pendingAssistantMessageId: null,
+                },
+              },
+            }
+          },
+          undefined,
+          'splitAssistantMessage'
         )
       },
 
@@ -363,20 +436,45 @@ export const useChatStore = create<ChatState>()(
         set(
           state => {
             const conv = state.conversations[key]
-            if (!conv || !conv.pendingAssistantMessageId) return state
+            if (!conv) return state
 
-            const updatedMessages = conv.messages.map(msg =>
-              msg.id === conv.pendingAssistantMessageId
-                ? { ...msg, error: message, streaming: false }
-                : msg
-            )
+            // If we have a pending assistant message, attach the error to it
+            if (conv.pendingAssistantMessageId) {
+              const updatedMessages = conv.messages.map(msg =>
+                msg.id === conv.pendingAssistantMessageId
+                  ? { ...msg, error: message, streaming: false }
+                  : msg
+              )
+              return {
+                conversations: {
+                  ...state.conversations,
+                  [key]: {
+                    ...conv,
+                    messages: updatedMessages,
+                    pendingAssistantMessageId: null,
+                    sending: false,
+                  },
+                },
+              }
+            }
+
+            // Otherwise create a new assistant error message
+            const id = generateId()
+            const errorMsg: ChatMessage = {
+              id,
+              role: 'assistant',
+              text: '',
+              createdAtMs: Date.now(),
+              streaming: false,
+              error: message,
+            }
+
             return {
               conversations: {
                 ...state.conversations,
                 [key]: {
                   ...conv,
-                  messages: updatedMessages,
-                  pendingAssistantMessageId: null,
+                  messages: [...conv.messages, errorMsg],
                   sending: false,
                 },
               },

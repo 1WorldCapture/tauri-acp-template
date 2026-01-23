@@ -55,7 +55,10 @@ export function ProviderPane() {
   const handlePermissionRequested = useCallback(
     (event: AcpPermissionRequestedEvent) => {
       if (event.source.type === 'installPlugin') {
-        const source = event.source as { type: 'installPlugin'; pluginId: string }
+        const source = event.source as {
+          type: 'installPlugin'
+          pluginId: string
+        }
         const provider = KNOWN_PROVIDERS.find(
           p => p.pluginId === source.pluginId
         )

@@ -64,6 +64,8 @@ interface AcpSessionUpdateEvent {
   workspaceId: string
   agentId: string
   sessionId: string
+  seq?: number
+  emittedAtMs?: number
   update: AcpSessionUpdate
 }
 
@@ -285,7 +287,7 @@ export function useAgentChatEvents() {
         agentId: event.payload.agentId,
       })
 
-      const { workspaceId, agentId, update } = event.payload
+      const { workspaceId, agentId, sessionId, update } = event.payload
       const store = useChatStore.getState()
 
       // Get the key for this conversation
@@ -301,20 +303,43 @@ export function useAgentChatEvents() {
         return
       }
 
+      // Validate session ID - ignore updates for old sessions
+      if (conv.sessionId && conv.sessionId !== sessionId) {
+        logger.debug('Ignoring update for non-current session', {
+          workspaceId,
+          agentId,
+          sessionId,
+          currentSessionId: conv.sessionId,
+        })
+        return
+      }
+
+      // Set session ID if not yet set (in case event arrives before SendPromptAck)
+      if (!conv.sessionId) {
+        store.setSessionId(key, sessionId)
+      }
+
+      // Create metadata for message ordering
+      const meta = {
+        createdAtMs:
+          typeof event.payload.emittedAtMs === 'number'
+            ? event.payload.emittedAtMs
+            : Date.now(),
+        seq:
+          typeof event.payload.seq === 'number' ? event.payload.seq : undefined,
+      }
+
       // Handle different update types
       switch (update.type) {
         case 'userMessageChunk': {
-          const text = extractChunkText(update.content)
-          if (text) {
-            store.addSystemMessage(key, `User message: ${text}`)
-          }
+          // Skip - we already render the user message locally
           break
         }
 
         case 'agentMessageChunk': {
           const text = extractChunkText(update.content)
           if (text) {
-            store.appendAssistantText(key, text)
+            store.appendAssistantText(key, text, meta)
           }
           break
         }
@@ -323,49 +348,59 @@ export function useAgentChatEvents() {
           // For now, treat thoughts as message content (could be styled differently later)
           const text = extractChunkText(update.content)
           if (text) {
-            store.appendAssistantText(key, text)
+            store.appendAssistantText(key, text, meta)
           }
           break
         }
 
         case 'toolCall': {
-          store.addSystemMessage(key, formatToolCall(update.toolCall))
+          store.splitAssistantMessage(key)
+          store.addSystemMessage(key, formatToolCall(update.toolCall), meta)
           break
         }
 
         case 'toolCallUpdate': {
+          store.splitAssistantMessage(key)
           store.addSystemMessage(
             key,
-            formatToolCallUpdate(update.toolCallUpdate)
+            formatToolCallUpdate(update.toolCallUpdate),
+            meta
           )
           break
         }
 
         case 'plan': {
-          store.addSystemMessage(key, formatPlan(update.plan))
+          store.splitAssistantMessage(key)
+          store.addSystemMessage(key, formatPlan(update.plan), meta)
           break
         }
 
         case 'availableCommandsUpdate': {
+          store.splitAssistantMessage(key)
           store.addSystemMessage(
             key,
-            formatAvailableCommands(update.availableCommands)
+            formatAvailableCommands(update.availableCommands),
+            meta
           )
           break
         }
 
         case 'currentModeUpdate': {
+          store.splitAssistantMessage(key)
           store.addSystemMessage(
             key,
-            `Current mode: ${formatJson(update.currentModeId)}`
+            `Current mode: ${formatJson(update.currentModeId)}`,
+            meta
           )
           break
         }
 
         case 'configOptionUpdate': {
+          store.splitAssistantMessage(key)
           store.addSystemMessage(
             key,
-            `Config options updated: ${formatJson(update.configOptions)}`
+            `Config options updated: ${formatJson(update.configOptions)}`,
+            meta
           )
           break
         }
@@ -378,7 +413,12 @@ export function useAgentChatEvents() {
         }
 
         case 'raw': {
-          store.addSystemMessage(key, `Raw update: ${formatJson(update.json)}`)
+          store.splitAssistantMessage(key)
+          store.addSystemMessage(
+            key,
+            `Raw update: ${formatJson(update.json)}`,
+            meta
+          )
           break
         }
 

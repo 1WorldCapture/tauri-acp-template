@@ -25,7 +25,10 @@ export function MainWindowContent({
   const selectedProjectId = useUIStore(state => state.selectedProjectId)
 
   // Track previous selection to detect changes
-  const prevSelectionRef = useRef<{ projectId: string | null; agentId: string | null }>({
+  const prevSelectionRef = useRef<{
+    projectId: string | null
+    agentId: string | null
+  }>({
     projectId: null,
     agentId: null,
   })
@@ -55,7 +58,6 @@ export function MainWindowContent({
   const ensureConversation = useChatStore(state => state.ensureConversation)
   const resetConversation = useChatStore(state => state.resetConversation)
   const addUserMessage = useChatStore(state => state.addUserMessage)
-  const beginAssistantMessage = useChatStore(state => state.beginAssistantMessage)
   const setSessionId = useChatStore(state => state.setSessionId)
   const setSending = useChatStore(state => state.setSending)
   const setAssistantError = useChatStore(state => state.setAssistantError)
@@ -80,7 +82,12 @@ export function MainWindowContent({
       projectId: selectedProjectId,
       agentId: selectedAgentId,
     }
-  }, [selectedProjectId, selectedAgentId, ensureConversation, resetConversation])
+  }, [
+    selectedProjectId,
+    selectedAgentId,
+    ensureConversation,
+    resetConversation,
+  ])
 
   // Handle sending a message
   const handleSendMessage = async (prompt: string) => {
@@ -90,9 +97,6 @@ export function MainWindowContent({
 
     // Add user message
     addUserMessage(key, prompt)
-
-    // Begin assistant message (empty, streaming)
-    beginAssistantMessage(key)
 
     // Mark as sending
     setSending(key, true)
@@ -119,16 +123,16 @@ export function MainWindowContent({
   if (selectedProjectId && selectedAgentId) {
     // Determine if input should be disabled
     const inputDisabled =
-      conversation?.sending ||
-      conversation?.agentStatus?.type === 'starting'
+      conversation?.sending || conversation?.agentStatus?.type === 'starting'
 
     return (
-      <div className={cn('flex h-full flex-col', className)}>
+      <div className={cn('flex h-full min-h-0 flex-col', className)}>
         <ChatArea
           projectName={projectName}
           agentName={agentName}
           agentStatus={conversation?.agentStatus ?? undefined}
           messages={conversation?.messages ?? []}
+          sending={conversation?.sending ?? false}
           inputDisabled={inputDisabled}
           onSendMessage={handleSendMessage}
         />

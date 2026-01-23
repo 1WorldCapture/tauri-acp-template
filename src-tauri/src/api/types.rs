@@ -215,6 +215,10 @@ pub struct AcpSessionUpdateEvent {
     pub agent_id: AgentId,
     /// Session identifier
     pub session_id: SessionId,
+    /// Monotonic sequence number (per agent host) for deterministic ordering
+    pub seq: u64,
+    /// Timestamp when the host emitted this update (ms since UNIX epoch)
+    pub emitted_at_ms: f64,
     /// The update payload
     pub update: AcpSessionUpdate,
 }

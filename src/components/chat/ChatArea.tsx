@@ -9,6 +9,7 @@ interface ChatAreaProps {
   agentName?: string
   agentStatus?: AgentStatusLike
   messages?: ChatMessage[]
+  sending?: boolean
   inputDisabled?: boolean
   onSendMessage?: (message: string) => void
   className?: string
@@ -19,18 +20,21 @@ export function ChatArea({
   agentName,
   agentStatus,
   messages = [],
+  sending = false,
   inputDisabled = false,
   onSendMessage,
   className,
 }: ChatAreaProps) {
   return (
-    <div className={cn('flex h-full flex-col bg-background', className)}>
+    <div
+      className={cn('flex h-full min-h-0 flex-col bg-background', className)}
+    >
       <ChatHeader
         projectName={projectName}
         agentName={agentName}
         agentStatus={agentStatus}
       />
-      <ChatMessages messages={messages} />
+      <ChatMessages messages={messages} sending={sending} />
       <ChatInput onSend={onSendMessage} disabled={inputDisabled} />
     </div>
   )

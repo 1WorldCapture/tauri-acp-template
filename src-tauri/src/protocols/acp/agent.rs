@@ -22,16 +22,14 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
-use agent_client_protocol as acp;
+use super::update_mapping::{map_acp_update_to_api_update, parse_acp_session_notification_params};
 use crate::api::types::{ApiError, PermissionSource, SessionId};
 use crate::plugins::manager::PluginCommand;
 use crate::protocols::agent_connection::AgentConnection;
 use crate::protocols::host::{
     AgentHost, FsReadTextFileRequest, FsWriteTextFileRequest, PermissionRequest, TerminalRunRequest,
 };
-use super::update_mapping::{
-    map_acp_update_to_api_update, parse_acp_session_notification_params,
-};
+use agent_client_protocol as acp;
 
 /// JSON-RPC method name for initialize handshake
 /// Per ACP protocol schema: agent-client-protocol-schema/src/agent.rs
@@ -182,8 +180,7 @@ impl AcpAgent {
         // Perform ACP handshake: initialize → session/new
         // This must happen before spawning the stdout reader task
         let mut stdout_reader = BufReader::new(stdout);
-        let session_id =
-            perform_acp_handshake(&stdin, &mut stdout_reader, &cwd).await?;
+        let session_id = perform_acp_handshake(&stdin, &mut stdout_reader, &cwd).await?;
 
         log::info!("ACP handshake completed: session={session_id}");
 
@@ -240,10 +237,8 @@ impl AcpAgent {
                                                     crate::api::types::AcpSessionUpdate::Raw {
                                                         json: params,
                                                     };
-                                                host_for_stdout.on_session_update(
-                                                    raw_session_id,
-                                                    raw_update,
-                                                );
+                                                host_for_stdout
+                                                    .on_session_update(raw_session_id, raw_update);
                                             }
                                         }
                                     } else {
@@ -287,29 +282,27 @@ impl AcpAgent {
                                     .or_else(|| result.get("stop_reason"))
                                     .cloned();
                                 if let Some(stop_reason_value) = stop_reason_value {
-                                    let stop_reason = match serde_json::from_value::<
-                                        acp::PromptResponse,
-                                    >(result.clone())
-                                    {
-                                        Ok(prompt_response) => serde_json::to_value(
-                                            prompt_response.stop_reason,
-                                        )
-                                        .unwrap_or(stop_reason_value.clone()),
-                                        Err(e) => {
-                                            log::debug!(
+                                    let stop_reason =
+                                        match serde_json::from_value::<acp::PromptResponse>(
+                                            result.clone(),
+                                        ) {
+                                            Ok(prompt_response) => {
+                                                serde_json::to_value(prompt_response.stop_reason)
+                                                    .unwrap_or(stop_reason_value.clone())
+                                            }
+                                            Err(e) => {
+                                                log::debug!(
                                                 "Failed to parse prompt response stopReason: {e}"
                                             );
-                                            stop_reason_value
-                                        }
-                                    };
+                                                stop_reason_value
+                                            }
+                                        };
                                     let update =
                                         crate::api::types::AcpSessionUpdate::TurnComplete {
                                             stop_reason,
                                         };
-                                    host_for_stdout.on_session_update(
-                                        session_id_for_stdout.clone(),
-                                        update,
-                                    );
+                                    host_for_stdout
+                                        .on_session_update(session_id_for_stdout.clone(), update);
                                 }
                             }
                             // It's a response (has "id" field), log for now
@@ -702,7 +695,7 @@ async fn send_jsonrpc_response(
 async fn perform_acp_handshake(
     stdin: &Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     stdout: &mut BufReader<tokio::process::ChildStdout>,
-    cwd: &PathBuf,
+    cwd: &std::path::Path,
 ) -> Result<SessionId, ApiError> {
     // Step 1: Send initialize request
     let init_id = Uuid::new_v4().to_string();
@@ -842,15 +835,14 @@ async fn read_jsonrpc_response(
         })?;
 
         // Try to parse as JSON
-        let json: serde_json::Value =
-            match serde_json::from_str(&line) {
-                Ok(j) => j,
-                Err(_) => {
-                    // Not JSON, likely debug output from adapter
-                    log::debug!("[handshake stdout] {line}");
-                    continue;
-                }
-            };
+        let json: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(j) => j,
+            Err(_) => {
+                // Not JSON, likely debug output from adapter
+                log::debug!("[handshake stdout] {line}");
+                continue;
+            }
+        };
 
         // Check if this is the response we're waiting for
         if let Some(id) = json.get("id") {
@@ -868,7 +860,10 @@ async fn read_jsonrpc_response(
             log::debug!("[handshake] Unexpected response id={id_str}, waiting for {expected_id}");
         } else {
             // No ID - probably a notification, log and continue
-            let method = json.get("method").and_then(|m| m.as_str()).unwrap_or("unknown");
+            let method = json
+                .get("method")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown");
             log::debug!("[handshake] Received notification: method={method}");
         }
     }

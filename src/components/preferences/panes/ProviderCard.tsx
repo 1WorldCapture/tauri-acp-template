@@ -69,7 +69,9 @@ export function ProviderCard({
           />
           <span
             className={cn(
-              isInstalled ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'
+              isInstalled
+                ? 'text-green-600 dark:text-green-500'
+                : 'text-muted-foreground'
             )}
           >
             {isInstalled

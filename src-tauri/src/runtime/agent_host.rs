@@ -8,8 +8,9 @@
 //! so the protocol layer never needs to know about these business concepts.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::Emitter;
 use tokio::sync::Mutex;
@@ -62,6 +63,8 @@ pub struct RuntimeAgentHost {
     fs_manager: Arc<FsManager>,
     /// Pre-approved operation IDs from ACP request_permission
     preapproved_ops: Mutex<HashMap<OperationId, Instant>>,
+    /// Monotonic sequence for ACP session updates (for deterministic ordering)
+    session_update_seq: AtomicU64,
 }
 
 impl RuntimeAgentHost {
@@ -89,6 +92,7 @@ impl RuntimeAgentHost {
             terminal_manager,
             fs_manager,
             preapproved_ops: Mutex::new(HashMap::new()),
+            session_update_seq: AtomicU64::new(0),
         })
     }
 }
@@ -123,10 +127,15 @@ impl AgentHost for RuntimeAgentHost {
     }
 
     fn on_session_update(&self, session_id: SessionId, update: AcpSessionUpdate) {
+        let seq = self.session_update_seq.fetch_add(1, Ordering::Relaxed);
+        let emitted_at_ms = now_ms();
+
         let event = AcpSessionUpdateEvent {
             workspace_id: self.workspace_id.clone(),
             agent_id: self.agent_id.clone(),
             session_id,
+            seq,
+            emitted_at_ms,
             update,
         };
 
@@ -451,6 +460,14 @@ impl RuntimeAgentHost {
         prune_preapprovals(&mut preapproved);
         preapproved.remove(operation_id).is_some()
     }
+}
+
+/// Helper function to get current time in milliseconds since UNIX epoch
+fn now_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64() * 1000.0)
+        .unwrap_or(0.0)
 }
 
 fn prune_preapprovals(preapproved: &mut HashMap<OperationId, Instant>) {
