@@ -2,13 +2,18 @@ import { cn } from '@/lib/utils'
 import { ChatHeader } from './ChatHeader'
 import { ChatMessages } from './ChatMessages'
 import { ChatInput } from './ChatInput'
-import type { ChatMessage, AgentStatusLike } from '@/store/chat-store'
+import type {
+  ChatMessage,
+  AgentStatusLike,
+  ToolCallEntry,
+} from '@/store/chat-store'
 
 interface ChatAreaProps {
   projectName?: string
   agentName?: string
   agentStatus?: AgentStatusLike
   messages?: ChatMessage[]
+  toolCalls?: ToolCallEntry[]
   sending?: boolean
   inputDisabled?: boolean
   onSendMessage?: (message: string) => void
@@ -20,6 +25,7 @@ export function ChatArea({
   agentName,
   agentStatus,
   messages = [],
+  toolCalls = [],
   sending = false,
   inputDisabled = false,
   onSendMessage,
@@ -34,7 +40,11 @@ export function ChatArea({
         agentName={agentName}
         agentStatus={agentStatus}
       />
-      <ChatMessages messages={messages} sending={sending} />
+      <ChatMessages
+        messages={messages}
+        toolCalls={toolCalls}
+        sending={sending}
+      />
       <ChatInput onSend={onSendMessage} disabled={inputDisabled} />
     </div>
   )

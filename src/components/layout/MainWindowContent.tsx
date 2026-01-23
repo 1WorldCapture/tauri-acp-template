@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/store/ui-store'
@@ -119,6 +119,14 @@ export function MainWindowContent({
     }
   }
 
+  // Memoize toolCalls array to prevent unnecessary re-renders
+  // Object.values() creates a new array reference on every call,
+  // which would trigger timeline recomputation in ChatMessages
+  const toolCallsArray = useMemo(
+    () => Object.values(conversation?.toolCalls ?? {}),
+    [conversation?.toolCalls]
+  )
+
   // Show chat area only when both project and agent are selected
   if (selectedProjectId && selectedAgentId) {
     // Determine if input should be disabled
@@ -132,6 +140,7 @@ export function MainWindowContent({
           agentName={agentName}
           agentStatus={conversation?.agentStatus ?? undefined}
           messages={conversation?.messages ?? []}
+          toolCalls={toolCallsArray}
           sending={conversation?.sending ?? false}
           inputDisabled={inputDisabled}
           onSendMessage={handleSendMessage}

@@ -17,6 +17,37 @@ export interface ChatMessage {
   error?: string
 }
 
+// ============================================================================
+// Tool Call Types
+// ============================================================================
+
+export type ToolCallStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | string
+
+export interface ToolCallEntry {
+  toolCallId: string
+  title?: string
+  kind?: string
+  status?: ToolCallStatus
+  input?: unknown
+  result?: unknown
+  error?: string
+  createdAtMs: number
+  seq?: number
+  updatedAtMs: number
+  raw?: unknown
+}
+
+export type ToolCallPatch = Partial<
+  Omit<ToolCallEntry, 'toolCallId' | 'createdAtMs' | 'seq'>
+> & {
+  toolCallId: string
+}
+
 /** Optional metadata for message creation (for ordering from backend events) */
 interface MessageMeta {
   createdAtMs?: number
@@ -35,6 +66,7 @@ export interface ChatConversation {
   sessionId: string | null
   agentStatus: AgentStatusLike | null
   messages: ChatMessage[]
+  toolCalls: Record<string, ToolCallEntry>
   pendingAssistantMessageId: string | null
   sending: boolean
 }
@@ -92,6 +124,13 @@ interface ChatState {
 
   // Set error on the pending assistant message
   setAssistantError: (key: ChatKey, message: string) => void
+
+  // Upsert a tool call entry (insert or update by toolCallId)
+  upsertToolCall: (
+    key: ChatKey,
+    patch: ToolCallPatch,
+    meta?: MessageMeta
+  ) => void
 }
 
 function createEmptyConversation(
@@ -104,6 +143,7 @@ function createEmptyConversation(
     sessionId: null,
     agentStatus: null,
     messages: [],
+    toolCalls: {},
     pendingAssistantMessageId: null,
     sending: false,
   }
@@ -482,6 +522,67 @@ export const useChatStore = create<ChatState>()(
           },
           undefined,
           'setAssistantError'
+        )
+      },
+
+      upsertToolCall: (key, patch, meta) => {
+        set(
+          state => {
+            const conv = state.conversations[key]
+            if (!conv) return state
+
+            const now = meta?.createdAtMs ?? Date.now()
+            const seq = meta?.seq
+            const existing = conv.toolCalls[patch.toolCallId]
+
+            let updatedEntry: ToolCallEntry
+
+            if (existing) {
+              // Update existing: preserve createdAtMs/seq, update other fields
+              updatedEntry = {
+                ...existing,
+                updatedAtMs: now,
+                // Only apply defined fields from patch (avoid overwriting with undefined)
+                ...(patch.title !== undefined && { title: patch.title }),
+                ...(patch.kind !== undefined && { kind: patch.kind }),
+                ...(patch.status !== undefined && { status: patch.status }),
+                ...(patch.input !== undefined && { input: patch.input }),
+                ...(patch.result !== undefined && { result: patch.result }),
+                ...(patch.error !== undefined && { error: patch.error }),
+                ...(patch.raw !== undefined && { raw: patch.raw }),
+              }
+            } else {
+              // Create new entry
+              updatedEntry = {
+                toolCallId: patch.toolCallId,
+                title: patch.title,
+                kind: patch.kind,
+                status: patch.status,
+                input: patch.input,
+                result: patch.result,
+                error: patch.error,
+                raw: patch.raw,
+                createdAtMs: now,
+                seq: typeof seq === 'number' ? seq : undefined,
+                updatedAtMs: now,
+              }
+            }
+
+            return {
+              conversations: {
+                ...state.conversations,
+                [key]: {
+                  ...conv,
+                  toolCalls: {
+                    ...conv.toolCalls,
+                    [patch.toolCallId]: updatedEntry,
+                  },
+                },
+              },
+            }
+          },
+          undefined,
+          'upsertToolCall'
         )
       },
     }),
